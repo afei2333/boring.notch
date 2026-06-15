@@ -21,6 +21,7 @@ struct ContentView: View {
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     @ObservedObject var musicManager = MusicManager.shared
     @ObservedObject var batteryModel = BatteryStatusViewModel.shared
+    @ObservedObject var aiChat = AIChatViewModel.shared
     @ObservedObject var brightnessManager = BrightnessManager.shared
     @ObservedObject var volumeManager = VolumeManager.shared
     @State private var hoverTask: Task<Void, Never>?
@@ -287,6 +288,9 @@ struct ContentView: View {
                       } else if coordinator.sneakPeek.show && Defaults[.inlineHUD] && (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && vm.notchState == .closed {
                           InlineHUD(type: $coordinator.sneakPeek.type, value: $coordinator.sneakPeek.value, icon: $coordinator.sneakPeek.icon, hoverAnimation: $isHovering, gestureProgress: $gestureProgress)
                               .transition(.opacity)
+                      } else if vm.notchState == .closed && aiChat.hasLiveActivity && !coordinator.sneakPeek.show {
+                          AINotchLiveActivity()
+                              .frame(alignment: .center)
                       } else if (!coordinator.expandingView.show || coordinator.expandingView.type == .music) && vm.notchState == .closed && (musicManager.isPlaying || !musicManager.isPlayerIdle) && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed {
                           MusicLiveActivity()
                               .frame(alignment: .center)
@@ -349,6 +353,10 @@ struct ContentView: View {
                         NotchHomeView(albumArtNamespace: albumArtNamespace)
                     case .shelf:
                         ShelfView()
+                    case .screenshot:
+                        ScreenshotView()
+                    case .ai:
+                        AIChatView()
                     }
                 }
                 .transition(
@@ -383,6 +391,48 @@ struct ContentView: View {
             height: vm.effectiveClosedNotchHeight,
             alignment: .center
         )
+    }
+
+    @ViewBuilder
+    func AINotchLiveActivity() -> some View {
+        HStack(spacing: 0) {
+            // Left of the notch — AI glyph
+            HStack {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white)
+                    .symbolEffect(.pulse, isActive: aiChat.isBusy)
+            }
+            .frame(width: 76, alignment: .leading)
+            .padding(.leading, 10)
+
+            Rectangle()
+                .fill(.black)
+                .frame(width: vm.closedNotchSize.width + 10)
+
+            // Right of the notch — progress + one-line summary
+            HStack(spacing: 5) {
+                if aiChat.isBusy {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.gray)
+                }
+                MarqueeText(
+                    .constant(aiChat.liveSummary.isEmpty ? "AI" : aiChat.liveSummary),
+                    textColor: .gray,
+                    minDuration: 0.4,
+                    frameWidth: 90
+                )
+            }
+            .frame(width: 110, alignment: .trailing)
+            .padding(.trailing, 10)
+        }
+        .frame(height: vm.effectiveClosedNotchHeight, alignment: .center)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            coordinator.currentView = .ai
+            vm.open()
+        }
     }
 
     @ViewBuilder

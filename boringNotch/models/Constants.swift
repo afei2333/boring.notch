@@ -171,6 +171,10 @@ extension Defaults.Keys {
     static let autoRemoveShelfItems = Key<Bool>("autoRemoveShelfItems", default: false)
     static let expandedDragDetection = Key<Bool>("expandedDragDetection", default: true)
     
+    // MARK: Screenshot
+    static let screenshotSaveToClipboard = Key<Bool>("screenshotSaveToClipboard", default: false)
+    static let screenshotPlaySound = Key<Bool>("screenshotPlaySound", default: false)
+
     // MARK: Calendar
     static let calendarSelectionState = Key<CalendarSelectionState>("calendarSelectionState", default: .all)
     static let hideAllDayEvents = Key<Bool>("hideAllDayEvents", default: false)

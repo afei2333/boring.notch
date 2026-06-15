@@ -20,6 +20,12 @@ import Foundation
     func isScreenBrightnessAvailable(with reply: @escaping (Bool) -> Void)
     func currentScreenBrightness(with reply: @escaping (NSNumber?) -> Void)
     func setScreenBrightness(_ value: Float, with reply: @escaping (Bool) -> Void)
+    // mimo (mimocode) headless daemon — spawned by the helper because the main
+    // app is sandboxed and cannot exec external binaries. The app then talks to
+    // the daemon over localhost HTTP/SSE.
+    func startMimoDaemon(workingDirectory: String, with reply: @escaping (_ port: Int, _ pid: Int, _ errorMessage: String?) -> Void)
+    func stopMimoDaemon(pid: Int, with reply: @escaping (_ success: Bool) -> Void)
+    func mimoDaemonStatus(pid: Int, with reply: @escaping (_ running: Bool) -> Void)
 }
 
 /*

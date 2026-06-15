@@ -241,6 +241,56 @@ final class XPCHelperClient: NSObject {
             return false
         }
     }
+
+    // MARK: - mimo daemon
+
+    /// Asks the (non-sandboxed) helper to spawn `mimo serve`. Returns the port the
+    /// daemon is listening on and its pid, or a non-nil error with port == 0.
+    nonisolated func startMimoDaemon(workingDirectory: String = "") async -> (port: Int, pid: Int, error: String?) {
+        do {
+            let service = await MainActor.run {
+                ensureRemoteService()
+            }
+            let result: (Int, Int, String?) = try await service.withContinuation { service, continuation in
+                service.startMimoDaemon(workingDirectory: workingDirectory) { port, pid, errorMessage in
+                    continuation.resume(returning: (port, pid, errorMessage))
+                }
+            }
+            return (result.0, result.1, result.2)
+        } catch {
+            return (0, 0, error.localizedDescription)
+        }
+    }
+
+    nonisolated func stopMimoDaemon(pid: Int) async -> Bool {
+        do {
+            let service = await MainActor.run {
+                ensureRemoteService()
+            }
+            return try await service.withContinuation { service, continuation in
+                service.stopMimoDaemon(pid: pid) { success in
+                    continuation.resume(returning: success)
+                }
+            }
+        } catch {
+            return false
+        }
+    }
+
+    nonisolated func mimoDaemonStatus(pid: Int) async -> Bool {
+        do {
+            let service = await MainActor.run {
+                ensureRemoteService()
+            }
+            return try await service.withContinuation { service, continuation in
+                service.mimoDaemonStatus(pid: pid) { running in
+                    continuation.resume(returning: running)
+                }
+            }
+        } catch {
+            return false
+        }
+    }
 }
 
 extension Notification.Name {

@@ -108,7 +108,12 @@ class BoringNotchSkyLightWindow: NSPanel {
     }
     
     private var observers: Set<AnyCancellable> = []
-    
-    override var canBecomeKey: Bool { false }
+
+    /// The notch is a non-activating overlay that normally never takes keyboard
+    /// focus. The AI chat input flips this on (only while it is on screen) so its
+    /// text field can become first responder, then flips it back off.
+    static var allowsKeyFocus: Bool = false
+
+    override var canBecomeKey: Bool { Self.allowsKeyFocus }
     override var canBecomeMain: Bool { false }
 }

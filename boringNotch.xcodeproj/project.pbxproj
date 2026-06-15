@@ -7,6 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AA0000010000000000000001 /* ScreenshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000001 /* ScreenshotService.swift */; };
+		AA0000030000000000000001 /* ScreenshotViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000040000000000000001 /* ScreenshotViewModel.swift */; };
+		AA0000050000000000000001 /* ScreenshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000060000000000000001 /* ScreenshotView.swift */; };
+		AC0000010000000000000001 /* MimoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000020000000000000001 /* MimoService.swift */; };
+		AC0000030000000000000001 /* AIChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000040000000000000001 /* AIChatViewModel.swift */; };
+		AC0000050000000000000001 /* AIChatModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000060000000000000001 /* AIChatModels.swift */; };
+		AC00000B0000000000000001 /* AIChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC00000C0000000000000001 /* AIChatView.swift */; };
+		AA00000B0000000000000001 /* CropOverlayWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000C0000000000000001 /* CropOverlayWindow.swift */; };
+		AA00000D0000000000000001 /* WindowPickerPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000E0000000000000001 /* WindowPickerPanel.swift */; };
 		1100290C2E847E2800035A57 /* NSItemProvider+LoadHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1100290B2E847E2800035A57 /* NSItemProvider+LoadHelpers.swift */; };
 		110029272E84FD4C00035A57 /* TemporaryFileStorageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110029262E84FD4C00035A57 /* TemporaryFileStorageService.swift */; };
 		1100292A2E8691B400035A57 /* FileShareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110029292E8691B400035A57 /* FileShareView.swift */; };
@@ -140,6 +149,7 @@
 		B1D365D02C6A9A6C0047BDBC /* SystemEventIndicatorModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D365CF2C6A9A6C0047BDBC /* SystemEventIndicatorModifier.swift */; };
 		B1D6FD432C6603730015F173 /* SoftwareUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D6FD422C6603730015F173 /* SoftwareUpdater.swift */; };
 		B1F0A0022E60000100000001 /* BrightnessManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0A0012E60000100000001 /* BrightnessManager.swift */; };
+		AB0000010000000000000001 /* MimoDaemonManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000020000000000000001 /* MimoDaemonManager.swift */; };
 		B1F747F92EC7E94000F841DB /* LottieView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F747F82EC7E94000F841DB /* LottieView.swift */; };
 		B1FEB4992C7686630066EBBC /* PanGesture.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1FEB4982C7686630066EBBC /* PanGesture.swift */; };
 		F38DE6482D8243E7008B5C6D /* BatteryActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F38DE6472D8243E2008B5C6D /* BatteryActivityManager.swift */; };
@@ -181,6 +191,15 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		AA0000020000000000000001 /* ScreenshotService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotService.swift; sourceTree = "<group>"; };
+		AA0000040000000000000001 /* ScreenshotViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotViewModel.swift; sourceTree = "<group>"; };
+		AA0000060000000000000001 /* ScreenshotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotView.swift; sourceTree = "<group>"; };
+		AC0000020000000000000001 /* MimoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MimoService.swift; sourceTree = "<group>"; };
+		AC0000040000000000000001 /* AIChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatViewModel.swift; sourceTree = "<group>"; };
+		AC0000060000000000000001 /* AIChatModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatModels.swift; sourceTree = "<group>"; };
+		AC00000C0000000000000001 /* AIChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatView.swift; sourceTree = "<group>"; };
+		AA00000C0000000000000001 /* CropOverlayWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropOverlayWindow.swift; sourceTree = "<group>"; };
+		AA00000E0000000000000001 /* WindowPickerPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowPickerPanel.swift; sourceTree = "<group>"; };
 		1100290B2E847E2800035A57 /* NSItemProvider+LoadHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSItemProvider+LoadHelpers.swift"; sourceTree = "<group>"; };
 		110029262E84FD4C00035A57 /* TemporaryFileStorageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemporaryFileStorageService.swift; sourceTree = "<group>"; };
 		110029292E8691B400035A57 /* FileShareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileShareView.swift; sourceTree = "<group>"; };
@@ -306,6 +325,7 @@
 		B1D365CF2C6A9A6C0047BDBC /* SystemEventIndicatorModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemEventIndicatorModifier.swift; sourceTree = "<group>"; };
 		B1D6FD422C6603730015F173 /* SoftwareUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftwareUpdater.swift; sourceTree = "<group>"; };
 		B1F0A0012E60000100000001 /* BrightnessManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrightnessManager.swift; sourceTree = "<group>"; };
+		AB0000020000000000000001 /* MimoDaemonManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MimoDaemonManager.swift; sourceTree = "<group>"; };
 		B1F747F82EC7E94000F841DB /* LottieView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LottieView.swift; sourceTree = "<group>"; };
 		B1FEB4982C7686630066EBBC /* PanGesture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanGesture.swift; sourceTree = "<group>"; };
 		F38DE6472D8243E2008B5C6D /* BatteryActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryActivityManager.swift; sourceTree = "<group>"; };
@@ -403,6 +423,85 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
+		AA0000070000000000000001 /* Screenshot */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000080000000000000001 /* Services */,
+				AA0000090000000000000001 /* ViewModels */,
+				AA00000A0000000000000001 /* Views */,
+			);
+			path = Screenshot;
+			sourceTree = "<group>";
+		};
+		AA0000080000000000000001 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000020000000000000001 /* ScreenshotService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		AA0000090000000000000001 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000040000000000000001 /* ScreenshotViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		AA00000A0000000000000001 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000060000000000000001 /* ScreenshotView.swift */,
+				AA00000C0000000000000001 /* CropOverlayWindow.swift */,
+				AA00000E0000000000000001 /* WindowPickerPanel.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		AC0000070000000000000001 /* AIChat */ = {
+			isa = PBXGroup;
+			children = (
+				AC0000080000000000000001 /* Services */,
+				AC0000090000000000000001 /* ViewModels */,
+				AC00000A0000000000000001 /* Models */,
+				AC00000D0000000000000001 /* Views */,
+			);
+			path = AIChat;
+			sourceTree = "<group>";
+		};
+		AC0000080000000000000001 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				AC0000020000000000000001 /* MimoService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		AC0000090000000000000001 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				AC0000040000000000000001 /* AIChatViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		AC00000A0000000000000001 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				AC0000060000000000000001 /* AIChatModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		AC00000D0000000000000001 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				AC00000C0000000000000001 /* AIChatView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
 		112B0EB62E30DD0F00562D6C /* mediaremote-adapter */ = {
 			isa = PBXGroup;
 			children = (
@@ -490,6 +589,8 @@
 				B1C448992C97375A001F0858 /* Tips */,
 				14C08BB72C8DE49E000F8AA0 /* Calendar */,
 				9A987A042C73CA66005CA465 /* Shelf */,
+				AA0000070000000000000001 /* Screenshot */,
+				AC0000070000000000000001 /* AIChat */,
 				149E0B982C737D26006418B1 /* Webcam */,
 				B18654312C6F45AE000B926A /* Live activities */,
 				B18654302C6F4590000B926A /* Settings */,
@@ -518,6 +619,7 @@
 				14C08BB52C8DE42D000F8AA0 /* CalendarManager.swift */,
 				B1F0A0012E60000100000001 /* BrightnessManager.swift */,
 				59D8C23B2E589FAA00147B33 /* VolumeManager.swift */,
+				AB0000020000000000000001 /* MimoDaemonManager.swift */,
 			);
 			path = managers;
 			sourceTree = "<group>";
@@ -905,6 +1007,15 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA0000010000000000000001 /* ScreenshotService.swift in Sources */,
+				AA0000030000000000000001 /* ScreenshotViewModel.swift in Sources */,
+				AA0000050000000000000001 /* ScreenshotView.swift in Sources */,
+				AA00000B0000000000000001 /* CropOverlayWindow.swift in Sources */,
+				AA00000D0000000000000001 /* WindowPickerPanel.swift in Sources */,
+				AC0000010000000000000001 /* MimoService.swift in Sources */,
+				AC0000030000000000000001 /* AIChatViewModel.swift in Sources */,
+				AC0000050000000000000001 /* AIChatModels.swift in Sources */,
+				AC00000B0000000000000001 /* AIChatView.swift in Sources */,
 				115C12EC2ED3D003009754CA /* OpenNotchHUD.swift in Sources */,
 				14C08BB92C8DE4B1000F8AA0 /* BoringCalendar.swift in Sources */,
 				5955950D2E900ED800C66711 /* ApplicationRelauncher.swift in Sources */,
@@ -1020,6 +1131,7 @@
 				1100290C2E847E2800035A57 /* NSItemProvider+LoadHelpers.swift in Sources */,
 				11CFC6632E09918400748C80 /* MusicControllerSelectionView.swift in Sources */,
 				B1F0A0022E60000100000001 /* BrightnessManager.swift in Sources */,
+				AB0000010000000000000001 /* MimoDaemonManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

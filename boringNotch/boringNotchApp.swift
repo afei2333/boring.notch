@@ -41,6 +41,15 @@ struct DynamicNotchApp: App {
             Button("Restart Boring Notch") {
                 ApplicationRelauncher.restart()
             }
+            #if DEBUG
+            Divider()
+            Button("Start mimo daemon (debug)") {
+                MimoDaemonManager.shared.start()
+            }
+            Button("Stop mimo daemon (debug)") {
+                Task { await MimoDaemonManager.shared.stop() }
+            }
+            #endif
             Button("Quit", role: .destructive) {
                 NSApplication.shared.terminate(self)
             }
@@ -86,6 +95,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         cleanupDragDetectors()
         cleanupWindows()
         XPCHelperClient.shared.stopMonitoringAccessibilityAuthorization()
+        MimoDaemonManager.shared.stopOnTerminate()
     }
 
     @MainActor
@@ -280,6 +290,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+
+        // Clean up any mimo daemon orphaned by a previous crash / force quit.
+        MimoDaemonManager.shared.reapStaleDaemon()
 
         NotificationCenter.default.addObserver(
             self,
