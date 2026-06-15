@@ -17,96 +17,111 @@ struct InlineHUD: View {
     @Binding var gestureProgress: CGFloat
     var body: some View {
         HStack {
-            HStack(spacing: 5) {
-                Group {
-                    switch (type) {
-                        case .volume:
-                            if icon.isEmpty {
-                                Image(systemName: SpeakerSymbol(value))
-                                    .contentTransition(.interpolate)
-                                    .symbolVariant(value > 0 ? .none : .slash)
-                                    .frame(width: 20, height: 15, alignment: .leading)
-                            } else {
-                                Image(systemName: icon)
-                                    .contentTransition(.interpolate)
-                                    .opacity(value.isZero ? 0.6 : 1)
-                                    .scaleEffect(value.isZero ? 0.85 : 1)
-                                    .frame(width: 20, height: 15, alignment: .leading)
-                            }
-                        case .brightness:
-                            Image(systemName: BrightnessSymbol(value))
-                                .contentTransition(.interpolate)
-                                .frame(width: 20, height: 15, alignment: .center)
-                        case .backlight:
-                            Image(systemName: value > 0.5 ? "light.max" : "light.min")
-                                .contentTransition(.interpolate)
-                                .frame(width: 20, height: 15, alignment: .center)
-                        case .mic:
-                            Image(systemName: "mic")
-                                .symbolRenderingMode(.hierarchical)
-                                .symbolVariant(value > 0 ? .none : .slash)
-                                .contentTransition(.interpolate)
-                                .frame(width: 20, height: 15, alignment: .center)
-                        default:
-                            EmptyView()
-                    }
+            if type == .screenshot {
+                HStack(spacing: 8) {
+                    Image(systemName: "camera.viewfinder")
+                        .foregroundStyle(.primary)
+                        .symbolVariant(.fill)
+                        .imageScale(.medium)
+                    Text(BoringViewCoordinator.shared.sneakPeek.message)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
                 }
-                .foregroundStyle(.white)
-                .symbolVariant(.fill)
-                
-                Text(Type2Name(type))
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
-                    .allowsTightening(true)
-                    .contentTransition(.numericText())
-            }
-            .frame(width: 100 - (hoverAnimation ? 0 : 12) + gestureProgress / 2, height: vm.notchSize.height - (hoverAnimation ? 0 : 12), alignment: .leading)
-            
-            Rectangle()
-                .fill(.black)
-                .frame(width: vm.closedNotchSize.width - 20)
-            
-            HStack {
-                if (type == .mic) {
-                    Text(value.isZero ? "muted" : "unmuted")
-                        .foregroundStyle(.gray)
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            } else {
+                HStack(spacing: 5) {
+                    Group {
+                        switch (type) {
+                            case .volume:
+                                if icon.isEmpty {
+                                    Image(systemName: SpeakerSymbol(value))
+                                        .contentTransition(.interpolate)
+                                        .symbolVariant(value > 0 ? .none : .slash)
+                                        .frame(width: 20, height: 15, alignment: .leading)
+                                } else {
+                                    Image(systemName: icon)
+                                        .contentTransition(.interpolate)
+                                        .opacity(value.isZero ? 0.6 : 1)
+                                        .scaleEffect(value.isZero ? 0.85 : 1)
+                                        .frame(width: 20, height: 15, alignment: .leading)
+                                }
+                            case .brightness:
+                                Image(systemName: BrightnessSymbol(value))
+                                    .contentTransition(.interpolate)
+                                    .frame(width: 20, height: 15, alignment: .center)
+                            case .backlight:
+                                Image(systemName: value > 0.5 ? "light.max" : "light.min")
+                                    .contentTransition(.interpolate)
+                                    .frame(width: 20, height: 15, alignment: .center)
+                            case .mic:
+                                Image(systemName: "mic")
+                                    .symbolRenderingMode(.hierarchical)
+                                    .symbolVariant(value > 0 ? .none : .slash)
+                                    .contentTransition(.interpolate)
+                                    .frame(width: 20, height: 15, alignment: .center)
+                            default:
+                                EmptyView()
+                        }
+                    }
+                    .foregroundStyle(.primary)
+                    .symbolVariant(.fill)
+                    
+                    Text(Type2Name(type))
+                        .font(.subheadline)
+                        .fontWeight(.medium)
                         .lineLimit(1)
                         .allowsTightening(true)
-                        .multilineTextAlignment(.trailing)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .contentTransition(.interpolate)
-                } else {
+                        .contentTransition(.numericText())
+                }
+                .frame(width: 100 - (hoverAnimation ? 0 : 12) + gestureProgress / 2, height: vm.notchSize.height - (hoverAnimation ? 0 : 12), alignment: .leading)
+                
+                Rectangle()
+                    .fill(.black)
+                    .frame(width: vm.closedNotchSize.width - 20)
+                
+                HStack {
+                    if (type == .mic) {
+                        Text(value.isZero ? "muted" : "unmuted")
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                            .allowsTightening(true)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .contentTransition(.interpolate)
+                    } else {
                         HStack {
-                        DraggableProgressBar(value: $value, onChange: { v in
-                            if type == .volume {
-                                VolumeManager.shared.setAbsolute(Float32(v))
-                            } else if type == .brightness {
-                                BrightnessManager.shared.setAbsolute(value: Float32(v))
+                            DraggableProgressBar(value: $value, onChange: { v in
+                                if type == .volume {
+                                    VolumeManager.shared.setAbsolute(Float32(v))
+                                } else if type == .brightness {
+                                    BrightnessManager.shared.setAbsolute(value: Float32(v))
+                                }
+                            })
+                            if (type == .volume && value.isZero) {
+                                Text("muted")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(.gray)
+                                    .lineLimit(1)
+                                    .allowsTightening(true)
+                                    .multilineTextAlignment(.trailing)
+                            } else if Defaults[.showClosedNotchHUDPercentage] {
+                                Text("\(Int(value * 100))%")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(.gray)
+                                    .lineLimit(1)
+                                    .allowsTightening(true)
+                                    .multilineTextAlignment(.trailing)
                             }
-                        })
-                        if (type == .volume && value.isZero) {
-                            Text("muted")
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .foregroundStyle(.gray)
-                                .lineLimit(1)
-                                .allowsTightening(true)
-                                .multilineTextAlignment(.trailing)
-                        } else if Defaults[.showClosedNotchHUDPercentage] {
-                            Text("\(Int(value * 100))%")
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .foregroundStyle(.gray)
-                                .lineLimit(1)
-                                .allowsTightening(true)
-                                .multilineTextAlignment(.trailing)
                         }
                     }
                 }
+                .padding(.trailing, 4)
+                .frame(width: 100 - (hoverAnimation ? 0 : 12) + gestureProgress / 2, height: vm.closedNotchSize.height - (hoverAnimation ? 0 : 12), alignment: .center)
             }
-            .padding(.trailing, 4)
-            .frame(width: 100 - (hoverAnimation ? 0 : 12) + gestureProgress / 2, height: vm.closedNotchSize.height - (hoverAnimation ? 0 : 12), alignment: .center)
         }
         .frame(height: vm.closedNotchSize.height + (hoverAnimation ? 8 : 0), alignment: .center)
     }

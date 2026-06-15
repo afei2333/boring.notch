@@ -42,6 +42,7 @@ class BoringViewModel: NSObject, ObservableObject {
     @Published var isRequestingAuthorization: Bool = false
     
     deinit {
+        NotificationCenter.default.removeObserver(self)
         destroy()
     }
 
@@ -67,6 +68,13 @@ class BoringViewModel: NSObject, ObservableObject {
             .store(in: &cancellables)
         
         setupDetectorObserver()
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleCloseNotchNotification),
+            name: NSNotification.Name("closeBoringNotch"),
+            object: nil
+        )
     }
     
     private func setupDetectorObserver() {
@@ -235,5 +243,9 @@ class BoringViewModel: NSObject, ObservableObject {
                 close()
             }
         }
+    }
+
+    @objc private func handleCloseNotchNotification() {
+        close()
     }
 }

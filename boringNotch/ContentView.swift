@@ -27,6 +27,7 @@ struct ContentView: View {
     @State private var hoverTask: Task<Void, Never>?
     @State private var isHovering: Bool = false
     @State private var anyDropDebounceTask: Task<Void, Never>?
+    @State private var aiAutoCloseTask: Task<Void, Never>?
 
     @State private var gestureProgress: CGFloat = .zero
 
@@ -37,6 +38,17 @@ struct ContentView: View {
     @Default(.useMusicVisualizer) var useMusicVisualizer
 
     @Default(.showNotHumanFace) var showNotHumanFace
+
+    private var notchTheme: NotchTheme {
+        if let screen = vm.screenUUID.flatMap({ NSScreen.screen(withUUID: $0) }) ?? NSScreen.main {
+            let hasNotch = screen.safeAreaInsets.top > 0
+            let isBuiltIn = screen.displayID.map { CGDisplayIsBuiltin($0) != 0 } ?? false
+            if !hasNotch && !isBuiltIn {
+                return .liquidGlass
+            }
+        }
+        return .classicBlack
+    }
 
     // Shared interactive spring for movement/resizing to avoid conflicting animations
     private let animationSpring = Animation.interactiveSpring(response: 0.38, dampingFraction: 0.8, blendDuration: 0)
@@ -57,6 +69,14 @@ struct ContentView: View {
                 ? cornerRadiusInsets.opened.bottom
                 : cornerRadiusInsets.closed.bottom
         )
+    }
+
+    /// Filler for the center "notch cutout" in closed-state live activities.
+    /// Opaque black over a real hardware notch (classicBlack); transparent on
+    /// external displays (liquidGlass) so the glass forms one continuous pill
+    /// instead of showing a black gap between the left/right content.
+    private var notchCutoutFill: Color {
+        notchTheme == .liquidGlass ? .clear : .black
     }
 
     private var computedChinWidth: CGFloat {
@@ -100,18 +120,20 @@ struct ContentView: View {
                         ? (cornerRadiusInsets.opened.top) : (cornerRadiusInsets.opened.bottom)
                         : cornerRadiusInsets.closed.bottom
                     )
-                    .padding([.horizontal, .bottom], vm.notchState == .open ? 12 : 0)
-                    .background(.black)
-                    .clipShape(currentNotchShape)
+                    .modifier(NotchBackground(theme: notchTheme, shape: currentNotchShape))
                     .overlay(alignment: .top) {
                         Rectangle()
-                            .fill(.black)
+                            .fill(notchTheme == .liquidGlass ? Color.clear : Color.black)
                             .frame(height: 1)
                             .padding(.horizontal, topCornerRadius)
                     }
                     .shadow(
                         color: ((vm.notchState == .open || isHovering) && Defaults[.enableShadow])
-                            ? .black.opacity(0.7) : .clear, radius: Defaults[.cornerRadiusScaling] ? 6 : 4
+                            ? (notchTheme == .liquidGlass ? Color.black.opacity(0.35) : Color.black.opacity(0.7))
+                            : .clear,
+                        radius: notchTheme == .liquidGlass ? 18 : (Defaults[.cornerRadiusScaling] ? 6 : 4),
+                        x: 0,
+                        y: notchTheme == .liquidGlass ? 8 : 0
                     )
                     .padding(
                         .bottom,
@@ -135,13 +157,13 @@ struct ContentView: View {
                     .onTapGesture {
                         doOpen()
                     }
-                    .conditionalModifier(Defaults[.enableGestures]) { view in
+                    .conditionalModifier(Defaults[.enableGestures] && !(vm.notchState == .open && coordinator.currentView == .ai)) { view in
                         view
                             .panGesture(direction: .down) { translation, phase in
                                 handleDownGesture(translation: translation, phase: phase)
                             }
                     }
-                    .conditionalModifier(Defaults[.closeGestureEnabled] && Defaults[.enableGestures]) { view in
+                    .conditionalModifier(Defaults[.closeGestureEnabled] && Defaults[.enableGestures] && !(vm.notchState == .open && coordinator.currentView == .ai)) { view in
                         view
                             .panGesture(direction: .up) { translation, phase in
                                 handleUpGesture(translation: translation, phase: phase)
@@ -167,11 +189,16 @@ struct ContentView: View {
                                 isHovering = false
                             }
                         }
+                        checkAIAutoClose()
                     }
                     .onChange(of: coordinator.currentView) { _, _ in
                         withAnimation(.smooth) {
                             vm.syncOpenHeightWithCurrentView()
                         }
+                        checkAIAutoClose()
+                    }
+                    .onChange(of: isHovering) { _, _ in
+                        checkAIAutoClose()
                     }
                     .onChange(of: vm.isBatteryPopoverActive) {
                         if !vm.isBatteryPopoverActive && !isHovering && vm.notchState == .open && !SharingStateManager.shared.preventNotchClose {
@@ -218,7 +245,10 @@ struct ContentView: View {
         )
         .animation(.smooth, value: gestureProgress)
         .background(dragDetector)
-        .preferredColorScheme(.dark)
+        // Classic-black pins dark (white content on black). Liquid Glass follows
+        // the system appearance so the native material renders its adaptive
+        // (bright, Control-Center-like) variant instead of the dark one.
+        .preferredColorScheme(notchTheme == .liquidGlass ? nil : .dark)
         .environmentObject(vm)
         .onChange(of: vm.anyDropZoneTargeting) { _, isTargeted in
             anyDropDebounceTask?.cancel()
@@ -270,11 +300,11 @@ struct ContentView: View {
                             HStack {
                                 Text(batteryModel.statusText)
                                     .font(.subheadline)
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(.primary)
                             }
 
                             Rectangle()
-                                .fill(.black)
+                                .fill(notchCutoutFill)
                                 .frame(width: vm.closedNotchSize.width + 10)
 
                             HStack {
@@ -290,7 +320,7 @@ struct ContentView: View {
                             .frame(width: 76, alignment: .trailing)
                         }
                         .frame(height: vm.effectiveClosedNotchHeight, alignment: .center)
-                      } else if coordinator.sneakPeek.show && Defaults[.inlineHUD] && (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && vm.notchState == .closed {
+                      } else if coordinator.sneakPeek.show && (Defaults[.inlineHUD] || coordinator.sneakPeek.type == .screenshot) && (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && vm.notchState == .closed {
                           InlineHUD(type: $coordinator.sneakPeek.type, value: $coordinator.sneakPeek.value, icon: $coordinator.sneakPeek.icon, hoverAnimation: $isHovering, gestureProgress: $gestureProgress)
                               .transition(.opacity)
                       } else if vm.notchState == .closed && aiChat.hasLiveActivity && !coordinator.sneakPeek.show {
@@ -310,7 +340,7 @@ struct ContentView: View {
                        }
 
                       if coordinator.sneakPeek.show {
-                          if (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && !Defaults[.inlineHUD] && vm.notchState == .closed {
+                           if (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && (coordinator.sneakPeek.type != .screenshot) && !Defaults[.inlineHUD] && vm.notchState == .closed {
                               SystemEventIndicatorModifier(
                                   eventType: $coordinator.sneakPeek.type,
                                   value: $coordinator.sneakPeek.value,
@@ -388,7 +418,7 @@ struct ContentView: View {
                         height: max(0, vm.effectiveClosedNotchHeight - 12)
                     )
                 Rectangle()
-                    .fill(.black)
+                    .fill(notchCutoutFill)
                     .frame(width: vm.closedNotchSize.width - 20)
                 MinimalFaceFeatures()
             }
@@ -405,14 +435,14 @@ struct ContentView: View {
             HStack {
                 Image(systemName: "sparkles")
                     .font(.system(size: 14))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .symbolEffect(.pulse, isActive: aiChat.isBusy)
             }
             .frame(width: 76, alignment: .leading)
             .padding(.leading, 10)
 
             Rectangle()
-                .fill(.black)
+                .fill(notchCutoutFill)
                 .frame(width: vm.closedNotchSize.width + 10)
 
             // Right of the notch — progress + one-line summary
@@ -457,7 +487,7 @@ struct ContentView: View {
                 )
 
             Rectangle()
-                .fill(.black)
+                .fill(notchCutoutFill)
                 .overlay(
                     HStack(alignment: .top) {
                         if coordinator.expandingView.show
@@ -560,6 +590,37 @@ struct ContentView: View {
     private func doOpen() {
         withAnimation(animationSpring) {
             vm.open()
+        }
+    }
+
+    private func checkAIAutoClose() {
+        aiAutoCloseTask?.cancel()
+        aiAutoCloseTask = nil
+        
+        guard coordinator.currentView == .ai,
+              vm.notchState == .open,
+              !isHovering else {
+            return
+        }
+        
+        aiAutoCloseTask = Task {
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            
+            await MainActor.run {
+                guard self.coordinator.currentView == .ai,
+                      self.vm.notchState == .open,
+                      !self.isHovering else {
+                    return
+                }
+                
+                if SharingStateManager.shared.preventNotchClose {
+                    SharingStateManager.shared.endInteraction()
+                }
+                withAnimation(self.animationSpring) {
+                    self.vm.close()
+                }
+            }
         }
     }
 
@@ -703,6 +764,146 @@ struct GeneralDropTargetDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         return false
+    }
+}
+
+/// Notch background: the body fill + edge treatment for both themes.
+///
+/// On macOS 26+ the `.liquidGlass` theme uses the **real** native Liquid Glass
+/// material (`.glassEffect(_:in:)`), which renders true backdrop refraction,
+/// dynamic specular highlights and an adaptive rim — no hand-tuned gradients.
+/// Older systems fall back to `NativeLiquidGlassView` (a manual approximation).
+struct NotchBackground: ViewModifier {
+    let theme: NotchTheme
+    let shape: NotchShape
+
+    func body(content: Content) -> some View {
+        switch theme {
+        case .liquidGlass:
+            if #available(macOS 26.0, *) {
+                // Native Liquid Glass. `.regular` adapts tint/contrast to the
+                // backdrop automatically; clipping to `shape` lets the material
+                // draw its own lensing + rim along the notch silhouette.
+                content.glassEffect(.regular, in: shape)
+            } else {
+                content
+                    .background(NativeLiquidGlassView())
+                    .clipShape(shape)
+                    .overlay { LiquidGlassEdges(shape: shape) }
+            }
+        case .classicBlack:
+            content
+                .background(Color.black)
+                .clipShape(shape)
+        }
+    }
+}
+
+/// Hand-painted glass rim used only as a pre-macOS 26 fallback.
+private struct LiquidGlassEdges: View {
+    let shape: NotchShape
+
+    var body: some View {
+        ZStack {
+            // A. Outer crisp white edge (thin)
+            shape
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            .white.opacity(0.45),
+                            .white.opacity(0.22),
+                            .white.opacity(0.08),
+                            .white.opacity(0.22),
+                            .white.opacity(0.35)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1.0
+                )
+
+            // B. Inner volumetric highlight (thick, top-left oriented)
+            shape
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            .white.opacity(0.35),
+                            .white.opacity(0.12),
+                            .clear,
+                            .clear
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 3.0
+                )
+                .blur(radius: 0.5)
+
+            // C. Volumetric shadow edge (bottom-right oriented)
+            shape
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            .clear,
+                            .clear,
+                            .black.opacity(0.12),
+                            .black.opacity(0.38)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 2.5
+                )
+                .blur(radius: 1.0)
+        }
+    }
+}
+
+struct NativeLiquidGlassView: View {
+    var body: some View {
+        ZStack {
+            // 1. Real-time macOS backdrop blur
+            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
+            
+            // 2. Translucent glass body tint (slightly dark, slightly blue-tinted)
+            Color(red: 0.1, green: 0.12, blue: 0.18).opacity(0.22)
+            
+            // 3. Chromatic Pearlescent Glow (Iridescent color shift)
+            LinearGradient(
+                colors: [
+                    Color(red: 0.0, green: 0.95, blue: 1.0).opacity(0.18),    // Cyan
+                    Color(red: 0.61, green: 0.0, blue: 1.0).opacity(0.12),   // Violet
+                    Color(red: 1.0, green: 0.84, blue: 0.0).opacity(0.08),   // Soft Gold
+                    Color(red: 1.0, green: 0.05, blue: 0.6).opacity(0.14)    // Magenta
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .blendMode(.plusLighter)
+            
+            // 4. Surface specular glare (highlights from top-left)
+            RadialGradient(
+                colors: [
+                    .white.opacity(0.22),
+                    .clear
+                ],
+                center: .topLeading,
+                startRadius: 0,
+                endRadius: 320
+            )
+            .blendMode(.overlay)
+            
+            // 5. Center soft lighting glow
+            RadialGradient(
+                colors: [
+                    Color.white.opacity(0.08),
+                    Color.clear
+                ],
+                center: .center,
+                startRadius: 0,
+                endRadius: 180
+            )
+        }
     }
 }
 

@@ -115,22 +115,24 @@ final class ShelfStateViewModel: ObservableObject {
         guard case .file(let bookmarkData) = item.kind else { return nil }
         let bookmark = Bookmark(data: bookmarkData)
         let result = bookmark.resolve()
+        guard let url = result.url, !url.isTrashItem else { return nil }
         if let refreshed = result.refreshedData, refreshed != bookmarkData {
             NSLog("Bookmark for \(item) stale; refreshing")
             scheduleDeferredBookmarkUpdate(for: item, bookmark: refreshed)
         }
-        return result.url
+        return url
     }
 
     func resolveAndUpdateBookmark(for item: ShelfItem) -> URL? {
         guard case .file(let bookmarkData) = item.kind else { return nil }
         let bookmark = Bookmark(data: bookmarkData)
         let result = bookmark.resolve()
+        guard let url = result.url, !url.isTrashItem else { return nil }
         if let refreshed = result.refreshedData, refreshed != bookmarkData {
             NSLog("Bookmark for \(item) stale; refreshing")
             updateBookmark(for: item, bookmark: refreshed)
         }
-        return result.url
+        return url
     }
 
     func resolveFileURLs(for items: [ShelfItem]) -> [URL] {

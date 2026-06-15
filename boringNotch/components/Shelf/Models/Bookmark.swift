@@ -16,8 +16,8 @@ struct Bookmark: Sendable, Equatable, Codable {
     }
 
     init(url: URL) throws {
-        guard url.isFileURL, FileManager.default.fileExists(atPath: url.path) else {
-            throw NSError(domain: "Bookmark", code: 1, userInfo: [NSLocalizedDescriptionKey: "Not a valid file URL or file does not exist at \(url.path)"])
+        guard url.isFileURL, FileManager.default.fileExists(atPath: url.path), !url.isTrashItem else {
+            throw NSError(domain: "Bookmark", code: 1, userInfo: [NSLocalizedDescriptionKey: "Not a valid file URL, file does not exist, or is in the Trash"])
         }
         do {
             let bookmark = try url.bookmarkData(
@@ -43,6 +43,9 @@ struct Bookmark: Sendable, Equatable, Codable {
                 relativeTo: nil,
                 bookmarkDataIsStale: &isStale
             )
+            if url.isTrashItem {
+                return (nil, nil)
+            }
             if isStale, let newData = try? url.bookmarkData(options: [.withSecurityScope]) {
                 NSLog("⚠️ Bookmark was stale for \(url.path), refreshed")
                 return (url, newData)
@@ -72,7 +75,7 @@ struct Bookmark: Sendable, Equatable, Codable {
         let (url, _) = resolve()
         guard let url = url else { return false }
         return url.accessSecurityScopedResource { url in
-            FileManager.default.fileExists(atPath: url.path)
+            FileManager.default.fileExists(atPath: url.path) && !url.isTrashItem
         }
     }
 

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 struct AIChatView: View {
     @ObservedObject private var vm = AIChatViewModel.shared
@@ -13,30 +14,47 @@ struct AIChatView: View {
     @FocusState private var inputFocused: Bool
     private let bottomAnchor = "ai-bottom"
 
+    @EnvironmentObject private var boringVM: BoringViewModel
+    var isStandalone: Bool = false
+
     var body: some View {
         VStack(spacing: 8) {
             header
             messageList
             inputBar
         }
-        .padding(.horizontal, 6)
-        .padding(.bottom, 4)
+        .padding(.horizontal, isStandalone ? 16 : 6)
+        .padding(.top, isStandalone ? 16 : 0)
+        .padding(.bottom, isStandalone ? 16 : 4)
         .background(WindowAccessor { window in
-            // The notch panel can't normally become key; allow it while this view
-            // is up so the input field can receive keystrokes.
-            BoringNotchSkyLightWindow.allowsKeyFocus = true
-            window?.makeKey()
+            if !isStandalone {
+                // The notch panel can't normally become key; allow it while this view
+                // is up so the input field can receive keystrokes.
+                BoringNotchSkyLightWindow.allowsKeyFocus = true
+                window?.makeKey()
+            }
         })
+        .background(
+            Color.black.opacity(0.01)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    zoomToWindow()
+                }
+        )
         .onAppear {
-            BoringNotchSkyLightWindow.allowsKeyFocus = true
-            // Keep the notch from auto-closing on mouse-exit while the chat is up,
-            // so the user can move the cursor away and keep typing.
-            SharingStateManager.shared.beginInteraction()
+            if !isStandalone {
+                BoringNotchSkyLightWindow.allowsKeyFocus = true
+                // Keep the notch from auto-closing on mouse-exit while the chat is up,
+                // so the user can move the cursor away and keep typing.
+                SharingStateManager.shared.beginInteraction()
+            }
         }
         .onDisappear {
-            BoringNotchSkyLightWindow.allowsKeyFocus = false
-            inputFocused = false
-            SharingStateManager.shared.endInteraction()
+            if !isStandalone {
+                BoringNotchSkyLightWindow.allowsKeyFocus = false
+                inputFocused = false
+                SharingStateManager.shared.endInteraction()
+            }
         }
         .task { await vm.prepareIfNeeded() }
         .task {
@@ -82,12 +100,16 @@ struct AIChatView: View {
         }
         .font(.system(size: 12))
         .foregroundStyle(.gray)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            zoomToWindow()
+        }
     }
 
     // MARK: - Messages
 
     private var visibleMessages: [MimoMessage] {
-        vm.messages.filter { $0.isUser || !$0.displayText.isEmpty }
+        vm.messages.filter { $0.info.role != "system" && ($0.isUser || !$0.displayText.isEmpty) }
     }
 
     private var messageList: some View {
@@ -141,7 +163,7 @@ struct AIChatView: View {
             TextField("发消息…", text: $input, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .lineLimit(1...4)
                 .focused($inputFocused)
                 .padding(.horizontal, 8)
@@ -168,6 +190,18 @@ struct AIChatView: View {
         let text = input
         input = ""
         Task { await vm.send(text) }
+    }
+
+    private func zoomToWindow() {
+        guard !isStandalone else { return }
+        AIChatWindowController.shared.showWindow()
+        
+        if SharingStateManager.shared.preventNotchClose {
+            SharingStateManager.shared.endInteraction()
+        }
+        withAnimation(.interactiveSpring(response: 0.38, dampingFraction: 0.8, blendDuration: 0)) {
+            boringVM.close()
+        }
     }
 }
 
@@ -208,5 +242,115 @@ private struct MessageBubble: View {
                 .clipShape(RoundedRectangle(cornerRadius: 11))
             if !isUser { Spacer(minLength: 28) }
         }
+    }
+}
+
+// MARK: - Standalone AI Window Controller
+
+class AIChatWindowController: NSWindowController {
+    static let shared = AIChatWindowController()
+    
+    private init() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 450, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        
+        super.init(window: window)
+        setupWindow()
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    private func setupWindow() {
+        guard let window = window else { return }
+        
+        window.title = "mimo AI"
+        window.titlebarAppearsTransparent = false
+        window.titleVisibility = .visible
+        window.isMovableByWindowBackground = true
+        
+        // Make it behave like a regular app window with proper Spaces support
+        window.collectionBehavior = [.managed, .participatesInCycle, .fullScreenAuxiliary]
+        
+        // Ensure proper window behavior
+        window.hidesOnDeactivate = false
+        window.isExcludedFromWindowsMenu = false
+        
+        window.isRestorable = true
+        window.identifier = NSUserInterfaceItemIdentifier("BoringNotchAIChatWindow")
+        
+        // Create the SwiftUI content
+        let aiView = AIChatView(isStandalone: true)
+            .environmentObject(BoringViewModel()) // Dummy to prevent crash
+        let hostingView = NSHostingView(rootView: aiView)
+        window.contentView = hostingView
+        
+        // Handle window closing
+        window.delegate = self
+    }
+    
+    func showWindow() {
+        // Set app to regular mode first
+        NSApp.setActivationPolicy(.regular)
+        
+        // If window is already visible, bring it to front properly
+        if window?.isVisible == true {
+            NSApp.activate(ignoringOtherApps: true)
+            window?.orderFrontRegardless()
+            window?.makeKeyAndOrderFront(nil)
+            return
+        }
+        
+        // Show the window with proper ordering
+        window?.orderFrontRegardless()
+        window?.makeKeyAndOrderFront(nil)
+        window?.center()
+        
+        // Activate the app and ensure window gets focus
+        NSApp.activate(ignoringOtherApps: true)
+        
+        // Force window to front after activation
+        DispatchQueue.main.async { [weak self] in
+            self?.window?.makeKeyAndOrderFront(nil)
+        }
+    }
+    
+    override func close() {
+        super.close()
+        relinquishFocus()
+    }
+    
+    private func relinquishFocus() {
+        window?.orderOut(nil)
+        
+        DispatchQueue.main.async {
+            let hasVisibleRegularWindows = NSApp.windows.contains { window in
+                window.isVisible && 
+                !(window is BoringNotchSkyLightWindow) && 
+                window.className != "NSStatusBarWindow"
+            }
+            if !hasVisibleRegularWindows {
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
+    }
+}
+
+extension AIChatWindowController: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        relinquishFocus()
+    }
+    
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        return true
+    }
+    
+    func windowDidBecomeKey(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
     }
 }

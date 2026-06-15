@@ -1164,6 +1164,7 @@ struct Appearance: View {
     @Default(.useMusicVisualizer) var useMusicVisualizer
     @Default(.customVisualizers) var customVisualizers
     @Default(.selectedVisualizer) var selectedVisualizer
+    @Default(.notchTheme) var notchTheme
 
     let icons: [String] = ["logo2"]
     @State private var selectedIcon: String = "logo2"

@@ -31,6 +31,11 @@ extension URL {
         }
         return try await accessor(self)
     }
+
+    var isTrashItem: Bool {
+        let components = path.lowercased().split(separator: "/")
+        return components.contains(".trash") || components.contains(".trashes")
+    }
 }
 
 extension [URL] {

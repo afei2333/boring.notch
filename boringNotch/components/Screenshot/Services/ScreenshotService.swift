@@ -129,6 +129,14 @@ final class ScreenshotService {
         return saveImage(image)
     }
 
+    func saveToFile(_ image: CGImage, to url: URL) -> Bool {
+        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else {
+            return false
+        }
+        CGImageDestinationAddImage(dest, image, nil)
+        return CGImageDestinationFinalize(dest)
+    }
+
     func copyToClipboard(_ image: CGImage) {
         let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
         let pb = NSPasteboard.general
@@ -139,9 +147,7 @@ final class ScreenshotService {
     // MARK: - Private
 
     private func screenScale(forDisplayID displayID: CGDirectDisplayID) -> CGFloat? {
-        NSScreen.screens.first {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == displayID
-        }?.backingScaleFactor
+        NSScreen.screens.first { $0.displayID == displayID }?.backingScaleFactor
     }
 
     /// Backing scale of the display that holds a window (frame is in top-left
@@ -217,7 +223,7 @@ final class ScreenshotSelfTest {
         let service = ScreenshotService.shared
         let loc = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(loc, $0.frame, false) } ?? NSScreen.main
-        let displayID = (screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) ?? CGMainDisplayID()
+        let displayID = screen?.displayID ?? CGMainDisplayID()
         var out: [String] = []
         out.append("mode=\(mode)")
         out.append("mouseLoc=\(Int(loc.x)),\(Int(loc.y))")

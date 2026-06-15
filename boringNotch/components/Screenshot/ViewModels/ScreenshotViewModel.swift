@@ -8,6 +8,7 @@
 import AppKit
 import Combine
 import Foundation
+import UniformTypeIdentifiers
 
 enum ScreenshotCaptureMode: Int, CaseIterable, Identifiable {
     case fullscreen = 0
@@ -92,6 +93,33 @@ final class ScreenshotViewModel: ObservableObject {
 
     private var countdownTask: Task<Void, Never>?
 
+    private func debugLog(_ message: String) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+        let timestamp = formatter.string(from: Date())
+        let logLine = "[\(timestamp)] \(message)\n"
+        
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dirURL = appSupport.appendingPathComponent("boringNotch", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
+        let logURL = dirURL.appendingPathComponent("screenshot_debug.log")
+        
+        if let data = logLine.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: logURL.path) {
+                if let fileHandle = try? FileHandle(forWritingTo: logURL) {
+                    fileHandle.seekToEndOfFile()
+                    fileHandle.write(data)
+                    fileHandle.closeFile()
+                } else {
+                    try? data.write(to: logURL)
+                }
+            } else {
+                try? data.write(to: logURL, options: .atomic)
+            }
+        }
+        NSLog(message)
+    }
+
     private init() {
         refreshPermission()
     }
@@ -110,6 +138,8 @@ final class ScreenshotViewModel: ObservableObject {
     func startCapture() {
         guard !isCapturing else { return }
         isCapturing = true
+
+        NotificationCenter.default.post(name: NSNotification.Name("closeBoringNotch"), object: nil)
 
         let delay = TimeInterval(selectedDelay.rawValue)
 
@@ -147,7 +177,7 @@ final class ScreenshotViewModel: ObservableObject {
     }
 
     private func displayID(for screen: NSScreen?) -> CGDirectDisplayID {
-        (screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) ?? CGMainDisplayID()
+        screen?.displayID ?? CGMainDisplayID()
     }
 
     private func doFullscreenCapture() async {
@@ -162,32 +192,88 @@ final class ScreenshotViewModel: ObservableObject {
         await deliver(image: image, service: service)
     }
 
+    struct CropResult {
+        let rect: CGRect
+        let screen: NSScreen
+        let image: CGImage
+    }
+
+    private func presentCropOverlays(screenCaptures: [NSScreen: CGImage]) async -> CropResult? {
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                NSApp.activate(ignoringOtherApps: true)
+                
+                var overlays: [CropOverlayWindow] = []
+                var hasCompleted = false
+                
+                let onCompleteBlock: (CGRect?, NSScreen, CGImage) -> Void = { rect, screen, img in
+                    guard !hasCompleted else { return }
+                    hasCompleted = true
+                    
+                    // Close all overlay windows
+                    for overlay in overlays {
+                        overlay.close()
+                    }
+                    overlays.removeAll()
+                    
+                    if let rect = rect {
+                        continuation.resume(returning: CropResult(rect: rect, screen: screen, image: img))
+                    } else {
+                        continuation.resume(returning: nil)
+                    }
+                }
+                
+                for (screen, image) in screenCaptures {
+                    let overlay = CropOverlayWindow(
+                        image: image,
+                        screenFrame: screen.frame
+                    ) { rect in
+                        onCompleteBlock(rect, screen, image)
+                    }
+                    overlay.makeKeyAndOrderFront(nil)
+                    overlays.append(overlay)
+                }
+            }
+        }
+    }
+
     private func doAreaCapture() async {
         let service = ScreenshotService.shared
-        let targetScreen = mouseScreen
-        let screenFrame = targetScreen?.frame ?? CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        debugLog("[Screenshot] doAreaCapture started for all screens.")
 
-        guard let fullImage = await service.captureDisplay(displayID: displayID(for: targetScreen)) else {
+        // Capture each connected screen
+        var screenCaptures: [NSScreen: CGImage] = [:]
+        for screen in NSScreen.screens {
+            let dispID = screen.displayID ?? CGMainDisplayID()
+            if let img = await service.captureDisplay(displayID: dispID) {
+                screenCaptures[screen] = img
+            }
+        }
+
+        guard !screenCaptures.isEmpty else {
+            debugLog("[Screenshot] doAreaCapture failed: no screen images captured")
             await MainActor.run { self.isCapturing = false }
             return
         }
-
-        // Derive the point→pixel scale from the actual captured image so we stay
-        // correct under scaled ("More Space"/"Larger Text") display resolutions.
-        let scaleX = CGFloat(fullImage.width) / screenFrame.width
-        let scaleY = CGFloat(fullImage.height) / screenFrame.height
 
         await MainActor.run {
             self.isCapturing = false
         }
 
-        if let cropRect = await presentCropOverlay(
-            image: fullImage,
-            screenFrame: screenFrame
-        ) {
+        if let result = await presentCropOverlays(screenCaptures: screenCaptures) {
+            let cropRect = result.rect
+            let targetScreen = result.screen
+            let fullImage = result.image
+            let screenFrame = targetScreen.frame
+            
+            debugLog("[Screenshot] doAreaCapture: cropRect received on screen \(targetScreen): \(cropRect)")
             await MainActor.run {
                 self.isCapturing = true
             }
+
+            // Derive the point→pixel scale from the actual captured image for the target display
+            let scaleX = CGFloat(fullImage.width) / screenFrame.width
+            let scaleY = CGFloat(fullImage.height) / screenFrame.height
 
             // cropRect is in points, bottom-left origin, relative to the screen.
             let scaledRect = CGRect(
@@ -207,11 +293,14 @@ final class ScreenshotViewModel: ObservableObject {
             )
 
             guard let cropped = service.cropImage(fullImage, to: flippedRect) else {
+                debugLog("[Screenshot] doAreaCapture: cropImage returned nil for flippedRect: \(flippedRect)")
                 await finishCapture(url: nil, image: nil)
                 return
             }
+            debugLog("[Screenshot] doAreaCapture: cropped image successfully \(cropped.width)x\(cropped.height)")
             await deliver(image: cropped, service: service)
         } else {
+            debugLog("[Screenshot] doAreaCapture: cropRect is nil (user cancelled)")
             await MainActor.run { self.isCapturing = false }
         }
     }
@@ -223,7 +312,7 @@ final class ScreenshotViewModel: ObservableObject {
 
         // Interactive selection: the overlay highlights whichever window is under
         // the cursor and returns its ID on click (Esc cancels).
-        if let windowID = await presentWindowSelector() {
+        if let windowID = await presentWindowSelectors() {
             await MainActor.run { self.isCapturing = true }
 
             // Let our selection overlay fully disappear before snapshotting.
@@ -241,15 +330,80 @@ final class ScreenshotViewModel: ObservableObject {
 
     /// Routes a captured image to the selected output (clipboard or file/shelf).
     private func deliver(image: CGImage, service: ScreenshotService) async {
+        debugLog("[Screenshot] deliver started. output mode: \(selectedOutput)")
         switch selectedOutput {
         case .clipboard:
             service.copyToClipboard(image)
+            debugLog("[Screenshot] deliver: copied to clipboard")
             await finishCapture(url: nil, image: nil)
-        case .shelf, .file:
+            await MainActor.run {
+                BoringViewCoordinator.shared.toggleSneakPeek(
+                    status: true,
+                    type: .screenshot,
+                    duration: 2.0,
+                    value: 0,
+                    icon: "camera.viewfinder",
+                    message: "已复制"
+                )
+            }
+        case .shelf:
             if let url = service.saveToFile(image) {
+                debugLog("[Screenshot] deliver: saved to shelf URL: \(url)")
                 let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
                 await finishCapture(url: url, image: nsImage)
+                await MainActor.run {
+                    BoringViewCoordinator.shared.toggleSneakPeek(
+                        status: true,
+                        type: .screenshot,
+                        duration: 2.0,
+                        value: 0,
+                        icon: "camera.viewfinder",
+                        message: "已保存"
+                    )
+                }
             } else {
+                debugLog("[Screenshot] deliver: failed to save to file for shelf")
+                await finishCapture(url: nil, image: nil)
+            }
+        case .file:
+            NSApp.activate(ignoringOtherApps: true)
+            let savePanel = NSSavePanel()
+            savePanel.allowedContentTypes = [.png]
+            
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+            let timestamp = formatter.string(from: Date())
+            savePanel.nameFieldStringValue = "Screenshot \(timestamp).png"
+            
+            debugLog("[Screenshot] deliver: presenting NSSavePanel")
+            let response = await withCheckedContinuation { continuation in
+                savePanel.begin { response in
+                    continuation.resume(returning: response)
+                }
+            }
+            
+            debugLog("[Screenshot] deliver: NSSavePanel response: \(response)")
+            if response == .OK, let url = savePanel.url {
+                if service.saveToFile(image, to: url) {
+                    debugLog("[Screenshot] deliver: saved to custom URL: \(url)")
+                    let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+                    await finishCapture(url: url, image: nsImage)
+                    await MainActor.run {
+                        BoringViewCoordinator.shared.toggleSneakPeek(
+                            status: true,
+                            type: .screenshot,
+                            duration: 2.0,
+                            value: 0,
+                            icon: "camera.viewfinder",
+                            message: "已保存"
+                        )
+                    }
+                } else {
+                    debugLog("[Screenshot] deliver: failed to save to custom URL")
+                    await finishCapture(url: nil, image: nil)
+                }
+            } else {
+                debugLog("[Screenshot] deliver: NSSavePanel cancelled or failed")
                 await finishCapture(url: nil, image: nil)
             }
         }
@@ -281,6 +435,22 @@ final class ScreenshotViewModel: ObservableObject {
     func deleteLastScreenshot() {
         guard let url = lastCapturedURL else { return }
         try? FileManager.default.removeItem(at: url)
+        
+        let path = url.path
+        let itemsToRemove = ShelfStateViewModel.shared.items.filter { item in
+            if case .file(let data) = item.kind {
+                let bookmark = Bookmark(data: data)
+                if let resolvedURL = bookmark.resolveURL() {
+                    return resolvedURL.path == path
+                }
+            }
+            return false
+        }
+        
+        for item in itemsToRemove {
+            ShelfStateViewModel.shared.remove(item)
+        }
+        
         lastCapturedURL = nil
         lastCapturedImage = nil
     }
@@ -292,27 +462,34 @@ final class ScreenshotViewModel: ObservableObject {
         countdownRemaining = 0
     }
 
-    private func presentCropOverlay(image: CGImage, screenFrame: CGRect) async -> CGRect? {
+    private func presentWindowSelectors() async -> CGWindowID? {
         return await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
-                let overlay = CropOverlayWindow(
-                    image: image,
-                    screenFrame: screenFrame
-                ) { cropRect in
-                    continuation.resume(returning: cropRect)
-                }
-                overlay.makeKeyAndOrderFront(nil)
-            }
-        }
-    }
-
-    private func presentWindowSelector() async -> CGWindowID? {
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.main.async {
-                let overlay = WindowSelectOverlay { windowID in
+                NSApp.activate(ignoringOtherApps: true)
+                
+                var overlays: [WindowSelectOverlay] = []
+                var hasCompleted = false
+                
+                let onCompleteBlock: (CGWindowID?) -> Void = { windowID in
+                    guard !hasCompleted else { return }
+                    hasCompleted = true
+                    
+                    // Close all overlay windows
+                    for overlay in overlays {
+                        overlay.close()
+                    }
+                    overlays.removeAll()
+                    
                     continuation.resume(returning: windowID)
                 }
-                overlay.begin()
+                
+                for screen in NSScreen.screens {
+                    let overlay = WindowSelectOverlay(screenFrame: screen.frame) { windowID in
+                        onCompleteBlock(windowID)
+                    }
+                    overlay.begin()
+                    overlays.append(overlay)
+                }
             }
         }
     }

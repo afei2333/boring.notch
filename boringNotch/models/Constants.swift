@@ -68,6 +68,20 @@ enum OptionKeyAction: String, CaseIterable, Identifiable, Defaults.Serializable 
     var id: String { self.rawValue }
 }
 
+enum NotchTheme: String, CaseIterable, Identifiable, Defaults.Serializable {
+    case classicBlack = "Classic Black"
+    case liquidGlass = "Liquid Glass"
+
+    var id: String { self.rawValue }
+
+    var label: String {
+        switch self {
+        case .classicBlack: return "经典黑色"
+        case .liquidGlass: return "液态玻璃"
+        }
+    }
+}
+
 extension Defaults.Keys {
     // MARK: General
     static let menubarIcon = Key<Bool>("menubarIcon", default: true)
@@ -103,6 +117,7 @@ extension Defaults.Keys {
     static let lightingEffect = Key<Bool>("lightingEffect", default: true)
     static let enableShadow = Key<Bool>("enableShadow", default: true)
     static let cornerRadiusScaling = Key<Bool>("cornerRadiusScaling", default: true)
+    static let notchTheme = Key<NotchTheme>("notchTheme", default: .classicBlack)
 
     static let showNotHumanFace = Key<Bool>("showNotHumanFace", default: false)
     static let tileShowLabels = Key<Bool>("tileShowLabels", default: false)

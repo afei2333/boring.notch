@@ -84,7 +84,7 @@ struct ShelfView: View {
                     Image(systemName: "tray.and.arrow.down")
                         .symbolVariant(.fill)
                         .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.white, .gray)
+                        .foregroundStyle(.primary, .secondary)
                         .imageScale(.large)
                     
                     Text("Drop files here")

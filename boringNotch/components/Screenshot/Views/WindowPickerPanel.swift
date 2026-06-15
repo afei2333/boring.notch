@@ -24,21 +24,20 @@ final class WindowSelectOverlay: NSWindow {
     private let highlightView = NSView()
     private var currentWindowID: CGWindowID?
 
-    private let unionFrame: CGRect
+    private let screenFrame: CGRect
     private let primaryHeight: CGFloat
 
-    init(onComplete: @escaping (CGWindowID?) -> Void) {
+    init(screenFrame: CGRect, onComplete: @escaping (CGWindowID?) -> Void) {
+        self.screenFrame = screenFrame
         self.onComplete = onComplete
 
-        let union = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
-        self.unionFrame = union.isNull ? (NSScreen.main?.frame ?? .zero) : union
         // Height of the primary display (origin at 0,0): used to flip CoreGraphics
         // top-left bounds into AppKit's bottom-left coordinate space.
         self.primaryHeight = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height
-            ?? NSScreen.main?.frame.height ?? unionFrame.height
+            ?? NSScreen.main?.frame.height ?? screenFrame.height
 
         super.init(
-            contentRect: unionFrame,
+            contentRect: screenFrame,
             styleMask: .borderless,
             backing: .buffered,
             defer: false
@@ -47,12 +46,13 @@ final class WindowSelectOverlay: NSWindow {
         selfRetainer = self
         isOpaque = false
         backgroundColor = .clear
-        level = .screenSaver
+        level = .statusBar
         ignoresMouseEvents = false
         acceptsMouseMovedEvents = true
         sharingType = .none
+        isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        setFrame(unionFrame, display: false)
+        setFrame(screenFrame, display: false)
 
         highlightView.wantsLayer = true
         highlightView.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
@@ -74,8 +74,8 @@ final class WindowSelectOverlay: NSWindow {
         hint.sizeToFit()
         let hf = hint.frame
         hint.frame = NSRect(
-            x: (unionFrame.width - hf.width - 32) / 2,
-            y: unionFrame.height - 70,
+            x: (screenFrame.width - hf.width - 32) / 2,
+            y: screenFrame.height - 70,
             width: hf.width + 32,
             height: hf.height + 16
         )
@@ -100,7 +100,13 @@ final class WindowSelectOverlay: NSWindow {
 
         clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] _ in
             guard let self else { return nil }
-            self.complete(with: self.currentWindowID)
+            // Only capture the window if the click occurred within this screen's overlay window
+            if let window = self.clickMonitorWindow(at: NSEvent.mouseLocation) {
+                if window == self {
+                    self.complete(with: self.currentWindowID)
+                    return nil
+                }
+            }
             return nil
         }
 
@@ -113,9 +119,18 @@ final class WindowSelectOverlay: NSWindow {
         }
     }
 
+    private func clickMonitorWindow(at globalPoint: NSPoint) -> NSWindow? {
+        let windows = NSApp.windows
+        return windows.first { $0.frame.contains(globalPoint) && $0 is WindowSelectOverlay }
+    }
+
     private func updateHighlight() {
         guard !hasCompleted, let cgLoc = CGEvent(source: nil)?.location else { return }
-        if let win = ScreenshotService.shared.window(at: cgLoc) {
+        
+        // Convert cgLoc (y-down) to AppKit y-up coordinate to check containment
+        let appKitLoc = CGPoint(x: cgLoc.x, y: primaryHeight - cgLoc.y)
+        
+        if screenFrame.contains(appKitLoc), let win = ScreenshotService.shared.window(at: cgLoc) {
             currentWindowID = win.id
             highlightView.frame = localRect(fromCGBounds: win.cgBounds)
             highlightView.isHidden = false
@@ -134,8 +149,8 @@ final class WindowSelectOverlay: NSWindow {
             height: cg.height
         )
         return CGRect(
-            x: appKit.origin.x - unionFrame.minX,
-            y: appKit.origin.y - unionFrame.minY,
+            x: appKit.origin.x - screenFrame.minX,
+            y: appKit.origin.y - screenFrame.minY,
             width: appKit.width,
             height: appKit.height
         )
@@ -152,6 +167,11 @@ final class WindowSelectOverlay: NSWindow {
             callback(id)
             self?.selfRetainer = nil
         }
+    }
+
+    override func close() {
+        stopMonitoring()
+        super.close()
     }
 
     private func stopMonitoring() {

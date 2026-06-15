@@ -62,9 +62,12 @@ class BoringNotchSkyLightWindow: NSPanel {
         hasShadow = false
         isReleasedWhenClosed = false
         
-        // Force dark appearance regardless of system setting
-        appearance = NSAppearance(named: .darkAqua)
-        
+        // Appearance is driven per-theme by ContentView's `.preferredColorScheme`:
+        // the classic-black theme forces `.dark`, while the native Liquid Glass
+        // theme follows the system so the glass renders its adaptive (bright)
+        // variant. Forcing `.darkAqua` here would pin the glass to its dark
+        // variant on every display, which is the "muddy" look we want to avoid.
+
         collectionBehavior = [
             .fullScreenAuxiliary,
             .stationary,

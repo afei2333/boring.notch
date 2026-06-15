@@ -100,8 +100,16 @@ class SettingsWindowController: NSWindowController {
     private func relinquishFocus() {
         window?.orderOut(nil)
         
-        // Set app back to accessory mode immediately
-        NSApp.setActivationPolicy(.accessory)
+        DispatchQueue.main.async {
+            let hasVisibleRegularWindows = NSApp.windows.contains { window in
+                window.isVisible && 
+                !(window is BoringNotchSkyLightWindow) && 
+                window.className != "NSStatusBarWindow"
+            }
+            if !hasVisibleRegularWindows {
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
     }
 }
 

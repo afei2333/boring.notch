@@ -35,8 +35,9 @@ final class CropOverlayWindow: NSWindow {
         selfRetainer = self
         isOpaque = false
         backgroundColor = .clear
-        level = .screenSaver
+        level = .statusBar
         ignoresMouseEvents = false
+        isReleasedWhenClosed = false
         // Keep the overlay itself out of any concurrent screen capture.
         sharingType = .none
         setFrame(screenFrame, display: true)
@@ -44,12 +45,12 @@ final class CropOverlayWindow: NSWindow {
 
         let nsImage = NSImage(cgImage: image, size: screenSize)
 
-        let overlay = NSImageView(frame: NSRect(origin: .zero, size: screenSize))
+        let overlay = FirstMouseImageView(frame: NSRect(origin: .zero, size: screenSize))
         overlay.image = nsImage
         overlay.imageScaling = .scaleProportionallyUpOrDown
         contentView!.addSubview(overlay)
 
-        let dimView = NSView(frame: NSRect(origin: .zero, size: screenSize))
+        let dimView = FirstMouseView(frame: NSRect(origin: .zero, size: screenSize))
         dimView.wantsLayer = true
         dimView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.35).cgColor
         contentView!.addSubview(dimView)
@@ -135,6 +136,11 @@ final class CropOverlayWindow: NSWindow {
         if let k = keyMonitor { NSEvent.removeMonitor(k); keyMonitor = nil }
     }
 
+    override func close() {
+        stopMonitoring()
+        super.close()
+    }
+
     private func normalize(_ a: NSPoint, _ b: NSPoint) -> NSRect {
         NSRect(
             x: min(a.x, b.x),
@@ -158,5 +164,17 @@ final class SelectionView: NSView {
 
         NSColor.clear.setFill()
         bounds.fill(using: .copy)
+    }
+}
+
+final class FirstMouseImageView: NSImageView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        return true
+    }
+}
+
+final class FirstMouseView: NSView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        return true
     }
 }
