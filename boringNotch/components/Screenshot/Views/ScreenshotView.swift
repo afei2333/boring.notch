@@ -13,28 +13,32 @@ struct ScreenshotView: View {
     @EnvironmentObject var vm: BoringViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if !viewModel.hasPermission {
-                permissionBanner
-                    .padding(.bottom, 12)
-            }
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                if !viewModel.hasPermission {
+                    permissionBanner
+                        .padding(.bottom, 12)
+                }
 
-            if viewModel.isCapturing && viewModel.countdownRemaining > 0 {
-                countdownView
-            } else {
-                captureModeSection
-                    .padding(.bottom, 14)
+                if viewModel.isCapturing && viewModel.countdownRemaining > 0 {
+                    countdownView
+                } else {
+                    captureModeSection
+                        .padding(.bottom, 14)
 
-                optionsSection
-                    .padding(.bottom, 14)
+                    optionsSection
+                        .padding(.bottom, 14)
 
-                if viewModel.lastCapturedImage != nil {
-                    recentSection
+                    if viewModel.lastCapturedImage != nil {
+                        recentSection
+                    }
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .scrollBounceBehavior(.basedOnSize)
         .onAppear {
             viewModel.refreshPermission()
         }

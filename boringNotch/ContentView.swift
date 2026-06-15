@@ -168,6 +168,11 @@ struct ContentView: View {
                             }
                         }
                     }
+                    .onChange(of: coordinator.currentView) { _, _ in
+                        withAnimation(.smooth) {
+                            vm.syncOpenHeightWithCurrentView()
+                        }
+                    }
                     .onChange(of: vm.isBatteryPopoverActive) {
                         if !vm.isBatteryPopoverActive && !isHovering && vm.notchState == .open && !SharingStateManager.shared.preventNotchClose {
                             hoverTask?.cancel()

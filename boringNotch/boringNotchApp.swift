@@ -294,6 +294,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Clean up any mimo daemon orphaned by a previous crash / force quit.
         MimoDaemonManager.shared.reapStaleDaemon()
 
+        #if DEBUG
+        ScreenshotSelfTest.shared.start()
+        #endif
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(screenConfigurationDidChange),

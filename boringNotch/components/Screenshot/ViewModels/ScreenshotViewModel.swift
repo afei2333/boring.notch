@@ -137,33 +137,45 @@ final class ScreenshotViewModel: ObservableObject {
         }
     }
 
+    /// The display the mouse cursor is currently on. Fullscreen / area captures
+    /// target this screen, so the user grabs whatever monitor they are pointing
+    /// at the instant the capture fires (multi-display aware). Pairing a delay
+    /// with this lets the user move to the screen they want before it triggers.
+    private var mouseScreen: NSScreen? {
+        let loc = NSEvent.mouseLocation
+        return NSScreen.screens.first { NSMouseInRect(loc, $0.frame, false) } ?? NSScreen.main
+    }
+
+    private func displayID(for screen: NSScreen?) -> CGDirectDisplayID {
+        (screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) ?? CGMainDisplayID()
+    }
+
     private func doFullscreenCapture() async {
         let service = ScreenshotService.shared
+        let targetScreen = mouseScreen
 
-        switch selectedOutput {
-        case .clipboard:
-            service.captureFullScreenToClipboard()
+        guard let image = await service.captureDisplay(displayID: displayID(for: targetScreen)) else {
             await finishCapture(url: nil, image: nil)
-        case .shelf, .file:
-            if let url = service.captureFullScreenToFile() {
-                let image = NSImage(contentsOf: url)
-                await finishCapture(url: url, image: image)
-            } else {
-                await finishCapture(url: nil, image: nil)
-            }
+            return
         }
+
+        await deliver(image: image, service: service)
     }
 
     private func doAreaCapture() async {
         let service = ScreenshotService.shared
+        let targetScreen = mouseScreen
+        let screenFrame = targetScreen?.frame ?? CGRect(x: 0, y: 0, width: 1920, height: 1080)
 
-        guard let fullImage = service.captureFullScreen() else {
+        guard let fullImage = await service.captureDisplay(displayID: displayID(for: targetScreen)) else {
             await MainActor.run { self.isCapturing = false }
             return
         }
 
-        let screenScale = NSScreen.main?.backingScaleFactor ?? 2.0
-        let screenSize = NSScreen.main?.frame.size ?? CGSize(width: 1920, height: 1080)
+        // Derive the point→pixel scale from the actual captured image so we stay
+        // correct under scaled ("More Space"/"Larger Text") display resolutions.
+        let scaleX = CGFloat(fullImage.width) / screenFrame.width
+        let scaleY = CGFloat(fullImage.height) / screenFrame.height
 
         await MainActor.run {
             self.isCapturing = false
@@ -171,19 +183,21 @@ final class ScreenshotViewModel: ObservableObject {
 
         if let cropRect = await presentCropOverlay(
             image: fullImage,
-            screenSize: screenSize
+            screenFrame: screenFrame
         ) {
             await MainActor.run {
                 self.isCapturing = true
             }
 
+            // cropRect is in points, bottom-left origin, relative to the screen.
             let scaledRect = CGRect(
-                x: cropRect.origin.x * screenScale,
-                y: cropRect.origin.y * screenScale,
-                width: cropRect.width * screenScale,
-                height: cropRect.height * screenScale
+                x: cropRect.origin.x * scaleX,
+                y: cropRect.origin.y * scaleY,
+                width: cropRect.width * scaleX,
+                height: cropRect.height * scaleY
             )
 
+            // CGImage cropping uses a top-left origin, so flip vertically.
             let imageHeight = CGFloat(fullImage.height)
             let flippedRect = CGRect(
                 x: scaledRect.origin.x,
@@ -192,18 +206,11 @@ final class ScreenshotViewModel: ObservableObject {
                 height: scaledRect.height
             )
 
-            switch selectedOutput {
-            case .clipboard:
-                service.captureAreaToClipboard(cropRect: flippedRect)
+            guard let cropped = service.cropImage(fullImage, to: flippedRect) else {
                 await finishCapture(url: nil, image: nil)
-            case .shelf, .file:
-                if let url = service.captureArea(cropRect: flippedRect) {
-                    let image = NSImage(contentsOf: url)
-                    await finishCapture(url: url, image: image)
-                } else {
-                    await finishCapture(url: nil, image: nil)
-                }
+                return
             }
+            await deliver(image: cropped, service: service)
         } else {
             await MainActor.run { self.isCapturing = false }
         }
@@ -211,32 +218,40 @@ final class ScreenshotViewModel: ObservableObject {
 
     private func doWindowCapture() async {
         let service = ScreenshotService.shared
-        let windows = service.listWindows()
-
-        guard !windows.isEmpty else {
-            await MainActor.run { self.isCapturing = false }
-            return
-        }
 
         await MainActor.run { self.isCapturing = false }
 
-        if let selectedWindow = await presentWindowPicker(windows: windows) {
+        // Interactive selection: the overlay highlights whichever window is under
+        // the cursor and returns its ID on click (Esc cancels).
+        if let windowID = await presentWindowSelector() {
             await MainActor.run { self.isCapturing = true }
 
-            switch selectedOutput {
-            case .clipboard:
-                service.captureWindowToClipboard(windowID: selectedWindow.id)
+            // Let our selection overlay fully disappear before snapshotting.
+            try? await Task.sleep(for: .milliseconds(80))
+
+            guard let image = await service.captureWindowImage(windowID: windowID) else {
                 await finishCapture(url: nil, image: nil)
-            case .shelf, .file:
-                if let url = service.captureWindow(windowID: selectedWindow.id) {
-                    let image = NSImage(contentsOf: url)
-                    await finishCapture(url: url, image: image)
-                } else {
-                    await finishCapture(url: nil, image: nil)
-                }
+                return
             }
+            await deliver(image: image, service: service)
         } else {
             await MainActor.run { self.isCapturing = false }
+        }
+    }
+
+    /// Routes a captured image to the selected output (clipboard or file/shelf).
+    private func deliver(image: CGImage, service: ScreenshotService) async {
+        switch selectedOutput {
+        case .clipboard:
+            service.copyToClipboard(image)
+            await finishCapture(url: nil, image: nil)
+        case .shelf, .file:
+            if let url = service.saveToFile(image) {
+                let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+                await finishCapture(url: url, image: nsImage)
+            } else {
+                await finishCapture(url: nil, image: nil)
+            }
         }
     }
 
@@ -277,12 +292,12 @@ final class ScreenshotViewModel: ObservableObject {
         countdownRemaining = 0
     }
 
-    private func presentCropOverlay(image: CGImage, screenSize: CGSize) async -> CGRect? {
+    private func presentCropOverlay(image: CGImage, screenFrame: CGRect) async -> CGRect? {
         return await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
                 let overlay = CropOverlayWindow(
                     image: image,
-                    screenSize: screenSize
+                    screenFrame: screenFrame
                 ) { cropRect in
                     continuation.resume(returning: cropRect)
                 }
@@ -291,13 +306,13 @@ final class ScreenshotViewModel: ObservableObject {
         }
     }
 
-    private func presentWindowPicker(windows: [(id: CGWindowID, name: String, app: String)]) async -> (id: CGWindowID, name: String, app: String)? {
+    private func presentWindowSelector() async -> CGWindowID? {
         return await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
-                let picker = WindowPickerPanel(windows: windows) { selected in
-                    continuation.resume(returning: selected)
+                let overlay = WindowSelectOverlay { windowID in
+                    continuation.resume(returning: windowID)
                 }
-                picker.makeKeyAndOrderFront(nil)
+                overlay.begin()
             }
         }
     }

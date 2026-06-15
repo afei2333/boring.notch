@@ -190,11 +190,21 @@ class BoringViewModel: NSObject, ObservableObject {
     }
 
     func open() {
-        self.notchSize = openNotchSize
+        self.notchSize = CGSize(width: openNotchSize.width, height: notchOpenHeight(for: coordinator.currentView))
         self.notchState = .open
-        
+
         // Force music information update when notch is opened
         MusicManager.shared.forceUpdate()
+    }
+
+    /// Keeps the open notch height in sync with the active view. Some views
+    /// (e.g. screenshot) need more room than the default open notch.
+    func syncOpenHeightWithCurrentView() {
+        guard notchState == .open else { return }
+        let height = notchOpenHeight(for: coordinator.currentView)
+        if notchSize.height != height {
+            notchSize.height = height
+        }
     }
 
     func close() {

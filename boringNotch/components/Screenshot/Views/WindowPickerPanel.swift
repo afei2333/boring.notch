@@ -6,99 +6,157 @@
 //
 
 import AppKit
-import SwiftUI
 
+/// Full-desktop overlay for window capture. As the cursor moves it highlights
+/// whichever window sits directly under it (like the macOS ⌘⇧4 + Space mode) and
+/// returns that window's ID when the user clicks. Esc cancels. The cursor is
+/// polled on a timer so highlighting works regardless of the app's active state.
 @MainActor
-final class WindowPickerPanel: NSPanel {
-    private let onComplete: ((id: CGWindowID, name: String, app: String)?) -> Void
-    private var selfRetainer: WindowPickerPanel?
+final class WindowSelectOverlay: NSWindow {
+    private let onComplete: (CGWindowID?) -> Void
+    private var selfRetainer: WindowSelectOverlay?
 
-    init(windows: [(id: CGWindowID, name: String, app: String)], onComplete: @escaping ((id: CGWindowID, name: String, app: String)?) -> Void) {
+    private var clickMonitor: Any?
+    private var keyMonitor: Any?
+    private var pollTimer: Timer?
+    private var hasCompleted = false
+
+    private let highlightView = NSView()
+    private var currentWindowID: CGWindowID?
+
+    private let unionFrame: CGRect
+    private let primaryHeight: CGFloat
+
+    init(onComplete: @escaping (CGWindowID?) -> Void) {
         self.onComplete = onComplete
 
+        let union = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
+        self.unionFrame = union.isNull ? (NSScreen.main?.frame ?? .zero) : union
+        // Height of the primary display (origin at 0,0): used to flip CoreGraphics
+        // top-left bounds into AppKit's bottom-left coordinate space.
+        self.primaryHeight = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height
+            ?? NSScreen.main?.frame.height ?? unionFrame.height
+
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 400),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            contentRect: unionFrame,
+            styleMask: .borderless,
             backing: .buffered,
             defer: false
         )
 
         selfRetainer = self
-        titlebarAppearsTransparent = true
-        titleVisibility = .hidden
         isOpaque = false
         backgroundColor = .clear
         level = .screenSaver
-        center()
+        ignoresMouseEvents = false
+        acceptsMouseMovedEvents = true
+        sharingType = .none
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        setFrame(unionFrame, display: false)
 
-        let hostingView = NSHostingView(rootView:
-            WindowPickerView(windows: windows) { [weak self] selected in
-                self?.close()
-                self?.onComplete(selected)
-                self?.selfRetainer = nil
-            }
+        highlightView.wantsLayer = true
+        highlightView.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
+        highlightView.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        highlightView.layer?.borderWidth = 2
+        highlightView.layer?.cornerRadius = 5
+        highlightView.isHidden = true
+        contentView?.addSubview(highlightView)
+
+        let hint = NSTextField(labelWithString: "点击要截取的窗口，Esc 取消")
+        hint.font = .systemFont(ofSize: 13, weight: .medium)
+        hint.textColor = .white
+        hint.backgroundColor = NSColor.black.withAlphaComponent(0.6)
+        hint.drawsBackground = true
+        hint.isBezeled = false
+        hint.wantsLayer = true
+        hint.layer?.cornerRadius = 8
+        hint.alignment = .center
+        hint.sizeToFit()
+        let hf = hint.frame
+        hint.frame = NSRect(
+            x: (unionFrame.width - hf.width - 32) / 2,
+            y: unionFrame.height - 70,
+            width: hf.width + 32,
+            height: hf.height + 16
         )
-        hostingView.frame = contentView!.bounds
-        hostingView.autoresizingMask = [.width, .height]
-        contentView!.addSubview(hostingView)
+        contentView?.addSubview(hint)
     }
 
     override var canBecomeKey: Bool { true }
-}
 
-struct WindowPickerView: View {
-    let windows: [(id: CGWindowID, name: String, app: String)]
-    let onSelect: ((id: CGWindowID, name: String, app: String)?) -> Void
+    func begin() {
+        makeKeyAndOrderFront(nil)
+        NSCursor.crosshair.set()
+        startMonitoring()
+        updateHighlight()
+    }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("选择窗口")
-                    .font(.system(size: 14, weight: .semibold))
-                Spacer()
-                Button("取消") { onSelect(nil) }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-
-            Divider()
-
-            ScrollView {
-                LazyVStack(spacing: 4) {
-                    ForEach(windows, id: \.id) { window in
-                        Button {
-                            onSelect(window)
-                        } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: "macwindow")
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 20)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(window.name)
-                                        .font(.system(size: 13, weight: .medium))
-                                        .lineLimit(1)
-                                    Text(window.app)
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-                                Spacer()
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(8)
-            }
+    private func startMonitoring() {
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateHighlight() }
         }
-        .frame(width: 360, height: 400)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        RunLoop.main.add(timer, forMode: .common)
+        pollTimer = timer
+
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] _ in
+            guard let self else { return nil }
+            self.complete(with: self.currentWindowID)
+            return nil
+        }
+
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53 { // Esc
+                self?.complete(with: nil)
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func updateHighlight() {
+        guard !hasCompleted, let cgLoc = CGEvent(source: nil)?.location else { return }
+        if let win = ScreenshotService.shared.window(at: cgLoc) {
+            currentWindowID = win.id
+            highlightView.frame = localRect(fromCGBounds: win.cgBounds)
+            highlightView.isHidden = false
+        } else {
+            currentWindowID = nil
+            highlightView.isHidden = true
+        }
+    }
+
+    /// CoreGraphics global bounds (top-left origin) → overlay-local AppKit rect.
+    private func localRect(fromCGBounds cg: CGRect) -> CGRect {
+        let appKit = CGRect(
+            x: cg.origin.x,
+            y: primaryHeight - cg.origin.y - cg.height,
+            width: cg.width,
+            height: cg.height
+        )
+        return CGRect(
+            x: appKit.origin.x - unionFrame.minX,
+            y: appKit.origin.y - unionFrame.minY,
+            width: appKit.width,
+            height: appKit.height
+        )
+    }
+
+    private func complete(with id: CGWindowID?) {
+        guard !hasCompleted else { return }
+        hasCompleted = true
+        stopMonitoring()
+        NSCursor.arrow.set()
+        orderOut(nil)
+        let callback = onComplete
+        DispatchQueue.main.async { [weak self] in
+            callback(id)
+            self?.selfRetainer = nil
+        }
+    }
+
+    private func stopMonitoring() {
+        pollTimer?.invalidate(); pollTimer = nil
+        if let m = clickMonitor { NSEvent.removeMonitor(m); clickMonitor = nil }
+        if let k = keyMonitor { NSEvent.removeMonitor(k); keyMonitor = nil }
     }
 }

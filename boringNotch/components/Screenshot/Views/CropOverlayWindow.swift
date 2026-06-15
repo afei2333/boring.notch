@@ -19,12 +19,14 @@ final class CropOverlayWindow: NSWindow {
     private var hasCompleted = false
     private var selfRetainer: CropOverlayWindow?
 
-    init(image: CGImage, screenSize: CGSize, onComplete: @escaping (CGRect?) -> Void) {
+    init(image: CGImage, screenFrame: CGRect, onComplete: @escaping (CGRect?) -> Void) {
         self.image = image
         self.onComplete = onComplete
 
+        let screenSize = screenFrame.size
+
         super.init(
-            contentRect: NSRect(origin: .zero, size: screenSize),
+            contentRect: screenFrame,
             styleMask: .borderless,
             backing: .buffered,
             defer: false
@@ -35,6 +37,9 @@ final class CropOverlayWindow: NSWindow {
         backgroundColor = .clear
         level = .screenSaver
         ignoresMouseEvents = false
+        // Keep the overlay itself out of any concurrent screen capture.
+        sharingType = .none
+        setFrame(screenFrame, display: true)
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let nsImage = NSImage(cgImage: image, size: screenSize)
