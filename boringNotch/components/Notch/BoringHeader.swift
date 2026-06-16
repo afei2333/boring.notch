@@ -13,6 +13,23 @@ struct BoringHeader: View {
     @ObservedObject var batteryModel = BatteryStatusViewModel.shared
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     @StateObject var tvm = ShelfStateViewModel.shared
+    @Environment(\.notchTheme) private var notchTheme
+
+    /// Capsule fill for the round header controls. Solid black reads as a button
+    /// on the black notch, but looks like a stray black blob on Liquid Glass, so
+    /// there we use a faint translucent chip that lets the glass show through.
+    private var controlButtonFill: AnyShapeStyle {
+        notchTheme == .liquidGlass
+            ? AnyShapeStyle(Color.primary.opacity(0.08))
+            : AnyShapeStyle(Color.black)
+    }
+
+    /// Glyph color paired with `controlButtonFill` — adaptive on Liquid Glass
+    /// (dark in light mode), white on the black notch.
+    private var controlButtonIconColor: Color {
+        notchTheme == .liquidGlass ? .primary : .white
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             HStack {
@@ -47,11 +64,11 @@ struct BoringHeader: View {
                                 vm.toggleCameraPreview()
                             }) {
                                 Capsule()
-                                    .fill(.black)
+                                    .fill(controlButtonFill)
                                     .frame(width: 30, height: 30)
                                     .overlay {
                                         Image(systemName: "web.camera")
-                                            .foregroundColor(.white)
+                                            .foregroundColor(controlButtonIconColor)
                                             .padding()
                                             .imageScale(.medium)
                                     }
@@ -66,11 +83,11 @@ struct BoringHeader: View {
                                 
                             }) {
                                 Capsule()
-                                    .fill(.black)
+                                    .fill(controlButtonFill)
                                     .frame(width: 30, height: 30)
                                     .overlay {
                                         Image(systemName: "gear")
-                                            .foregroundColor(.white)
+                                            .foregroundColor(controlButtonIconColor)
                                             .padding()
                                             .imageScale(.medium)
                                     }

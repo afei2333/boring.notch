@@ -16,7 +16,6 @@ final class WindowSelectOverlay: NSWindow {
     private let onComplete: (CGWindowID?) -> Void
     private var selfRetainer: WindowSelectOverlay?
 
-    private var clickMonitor: Any?
     private var keyMonitor: Any?
     private var pollTimer: Timer?
     private var hasCompleted = false
@@ -54,13 +53,16 @@ final class WindowSelectOverlay: NSWindow {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         setFrame(screenFrame, display: false)
 
+        let customContentView = WindowSelectContentView(frame: NSRect(origin: .zero, size: screenFrame.size))
+        self.contentView = customContentView
+
         highlightView.wantsLayer = true
         highlightView.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
         highlightView.layer?.borderColor = NSColor.controlAccentColor.cgColor
         highlightView.layer?.borderWidth = 2
         highlightView.layer?.cornerRadius = 5
         highlightView.isHidden = true
-        contentView?.addSubview(highlightView)
+        customContentView.addSubview(highlightView)
 
         let hint = NSTextField(labelWithString: "点击要截取的窗口，Esc 取消")
         hint.font = .systemFont(ofSize: 13, weight: .medium)
@@ -79,7 +81,7 @@ final class WindowSelectOverlay: NSWindow {
             width: hf.width + 32,
             height: hf.height + 16
         )
-        contentView?.addSubview(hint)
+        customContentView.addSubview(hint)
     }
 
     override var canBecomeKey: Bool { true }
@@ -91,24 +93,16 @@ final class WindowSelectOverlay: NSWindow {
         updateHighlight()
     }
 
+    func handleMouseDown(with event: NSEvent) {
+        self.complete(with: self.currentWindowID)
+    }
+
     private func startMonitoring() {
         let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateHighlight() }
         }
         RunLoop.main.add(timer, forMode: .common)
         pollTimer = timer
-
-        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] _ in
-            guard let self else { return nil }
-            // Only capture the window if the click occurred within this screen's overlay window
-            if let window = self.clickMonitorWindow(at: NSEvent.mouseLocation) {
-                if window == self {
-                    self.complete(with: self.currentWindowID)
-                    return nil
-                }
-            }
-            return nil
-        }
 
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 { // Esc
@@ -117,11 +111,6 @@ final class WindowSelectOverlay: NSWindow {
             }
             return event
         }
-    }
-
-    private func clickMonitorWindow(at globalPoint: NSPoint) -> NSWindow? {
-        let windows = NSApp.windows
-        return windows.first { $0.frame.contains(globalPoint) && $0 is WindowSelectOverlay }
     }
 
     private func updateHighlight() {
@@ -176,7 +165,16 @@ final class WindowSelectOverlay: NSWindow {
 
     private func stopMonitoring() {
         pollTimer?.invalidate(); pollTimer = nil
-        if let m = clickMonitor { NSEvent.removeMonitor(m); clickMonitor = nil }
         if let k = keyMonitor { NSEvent.removeMonitor(k); keyMonitor = nil }
+    }
+}
+
+final class WindowSelectContentView: NSView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        return true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        (window as? WindowSelectOverlay)?.handleMouseDown(with: event)
     }
 }

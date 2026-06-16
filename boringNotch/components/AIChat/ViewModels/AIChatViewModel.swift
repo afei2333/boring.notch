@@ -38,9 +38,17 @@ final class AIChatViewModel: ObservableObject {
     @Published var mode: AIMode = .quickChat
     @Published var model: MimoModel = .standard
 
+    /// Whether the chat input currently has keyboard focus. Surfaced so the notch
+    /// won't auto-close (and yank focus) while the user is typing.
+    @Published var isInputFocused: Bool = false
+
     private let daemon = MimoDaemonManager.shared
     private var service: MimoService?
     private var eventTask: Task<Void, Never>?
+
+    /// Synchronous guard against a duplicate submit re-sending the same prompt
+    /// while a turn is already in flight (otherwise an agent task could run twice).
+    private var isSending = false
 
     private init() {}
 
@@ -95,6 +103,11 @@ final class AIChatViewModel: ObservableObject {
     func send(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        // Drop re-entrant sends (e.g. a double-fired submit). `isSending` stays set
+        // for the whole turn, so the same prompt can't be dispatched twice.
+        guard !isSending else { return }
+        isSending = true
+        defer { isSending = false }
         guard await prepareIfNeeded(), let service else { return }
 
         if activeSessionID == nil {

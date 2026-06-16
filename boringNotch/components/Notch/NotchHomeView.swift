@@ -72,12 +72,22 @@ struct AlbumArtView: View {
         }
     }
 
+    // Dims the artwork while paused. The blur is clipped to the artwork shape so
+    // it stays a vignette over the art instead of bleeding out as a dark halo —
+    // that halo is invisible on the black notch but shows as an obvious shadow
+    // on Liquid Glass.
     private var albumArtDarkOverlay: some View {
         Rectangle()
             .aspectRatio(1, contentMode: .fit)
             .foregroundColor(Color.black)
             .opacity(musicManager.isPlaying ? 0 : 0.8)
             .blur(radius: 50)
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: Defaults[.cornerRadiusScaling]
+                        ? MusicPlayerImageSizes.cornerRadiusInset.opened
+                        : MusicPlayerImageSizes.cornerRadiusInset.closed)
+            )
     }
                 
 

@@ -53,8 +53,14 @@ struct AIChatView: View {
             if !isStandalone {
                 BoringNotchSkyLightWindow.allowsKeyFocus = false
                 inputFocused = false
+                vm.isInputFocused = false
                 SharingStateManager.shared.endInteraction()
             }
+        }
+        .onChange(of: inputFocused) { _, focused in
+            // The notch instance owns the auto-close decision; while the field is
+            // focused the notch must stay open so typing can't yank focus away.
+            if !isStandalone { vm.isInputFocused = focused }
         }
         .task { await vm.prepareIfNeeded() }
         .task {

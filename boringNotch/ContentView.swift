@@ -129,11 +129,11 @@ struct ContentView: View {
                     }
                     .shadow(
                         color: ((vm.notchState == .open || isHovering) && Defaults[.enableShadow])
-                            ? (notchTheme == .liquidGlass ? Color.black.opacity(0.35) : Color.black.opacity(0.7))
+                            ? (notchTheme == .liquidGlass ? Color.black.opacity(0.12) : Color.black.opacity(0.7))
                             : .clear,
-                        radius: notchTheme == .liquidGlass ? 18 : (Defaults[.cornerRadiusScaling] ? 6 : 4),
+                        radius: notchTheme == .liquidGlass ? 8 : (Defaults[.cornerRadiusScaling] ? 6 : 4),
                         x: 0,
-                        y: notchTheme == .liquidGlass ? 8 : 0
+                        y: notchTheme == .liquidGlass ? 3 : 0
                     )
                     .padding(
                         .bottom,
@@ -200,6 +200,14 @@ struct ContentView: View {
                     .onChange(of: isHovering) { _, _ in
                         checkAIAutoClose()
                     }
+                    .onChange(of: aiChat.isInputFocused) { _, _ in
+                        // Focus gained cancels the pending close; focus lost re-arms it.
+                        checkAIAutoClose()
+                    }
+                    .onChange(of: aiChat.isBusy) { _, _ in
+                        // A finished turn re-arms the idle auto-close timer.
+                        checkAIAutoClose()
+                    }
                     .onChange(of: vm.isBatteryPopoverActive) {
                         if !vm.isBatteryPopoverActive && !isHovering && vm.notchState == .open && !SharingStateManager.shared.preventNotchClose {
                             hoverTask?.cancel()
@@ -249,6 +257,7 @@ struct ContentView: View {
         // the system appearance so the native material renders its adaptive
         // (bright, Control-Center-like) variant instead of the dark one.
         .preferredColorScheme(notchTheme == .liquidGlass ? nil : .dark)
+        .environment(\.notchTheme, notchTheme)
         .environmentObject(vm)
         .onChange(of: vm.anyDropZoneTargeting) { _, isTargeted in
             anyDropDebounceTask?.cancel()
@@ -599,7 +608,9 @@ struct ContentView: View {
         
         guard coordinator.currentView == .ai,
               vm.notchState == .open,
-              !isHovering else {
+              !isHovering,
+              !aiChat.isInputFocused,
+              !aiChat.isBusy else {
             return
         }
         

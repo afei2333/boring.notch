@@ -82,8 +82,16 @@ struct MimoMessage: Decodable, Identifiable {
     }
 
     /// The concatenated visible text of this message (text parts only).
+    ///
+    /// mimo's `plan` agent appends a large `<system-reminder>…</system-reminder>`
+    /// text part to every *user* message; those are internal prompt scaffolding,
+    /// not something the user wrote, so they must never surface in the bubble.
     var displayText: String {
-        parts.filter { $0.type == "text" }.compactMap { $0.text }.joined()
+        parts
+            .filter { $0.type == "text" }
+            .compactMap { $0.text }
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<system-reminder") }
+            .joined()
     }
 
     var isUser: Bool { info.role == "user" }

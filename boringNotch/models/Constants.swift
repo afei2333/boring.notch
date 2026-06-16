@@ -82,6 +82,23 @@ enum NotchTheme: String, CaseIterable, Identifiable, Defaults.Serializable {
     }
 }
 
+// MARK: - Theme Environment
+
+private struct NotchThemeKey: EnvironmentKey {
+    static let defaultValue: NotchTheme = .classicBlack
+}
+
+extension EnvironmentValues {
+    /// The notch theme resolved for the current display, injected by `ContentView`.
+    /// Descendant views read this to adapt styling that was originally hard-coded
+    /// for the black notch — e.g. translucent controls and softer shadows on
+    /// Liquid Glass vs. solid black on Classic Black.
+    var notchTheme: NotchTheme {
+        get { self[NotchThemeKey.self] }
+        set { self[NotchThemeKey.self] = newValue }
+    }
+}
+
 extension Defaults.Keys {
     // MARK: General
     static let menubarIcon = Key<Bool>("menubarIcon", default: true)

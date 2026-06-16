@@ -105,6 +105,10 @@ private struct ScrollMonitor: NSViewRepresentable {
         }
 
         private func handleScroll(_ event: NSEvent) {
+            // Ignore mouse-wheel scrolling: it should never open/close or resize the
+            // notch. Only trackpad gestures (precise deltas) drive the pan gesture.
+            guard event.hasPreciseScrollingDeltas else { return }
+
             if event.phase == .ended || event.momentumPhase == .ended {
                 if active {
                     action(accumulated.magnitude, .ended)
@@ -124,11 +128,7 @@ private struct ScrollMonitor: NSViewRepresentable {
             let isAxisDominant: Bool = direction.isHorizontal ? (absDX >= axisDominanceFactor * absDY) : (absDY >= axisDominanceFactor * absDX)
             guard isAxisDominant else { return }
 
-            // Scale non-precise (mouse wheel) scrolling deltas so they feel similar to
-            // trackpad gestures.
-            let raw = direction.signed(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY)
-            let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 8
-            let s = raw * scale
+            let s = direction.signed(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY)
             guard s.magnitude > noiseThreshold else { return }
             accumulated = s > 0 ? accumulated + s : 0
 
