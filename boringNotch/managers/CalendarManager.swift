@@ -32,6 +32,14 @@ class CalendarManager: ObservableObject {
         self.currentWeekStartDate = CalendarManager.startOfDay(Date())
         setupEventStoreChangedObserver()
         Task {
+            // Request authorization at launch when the calendar feature is
+            // enabled — otherwise the prompt only ever appears from the
+            // settings pane, so a reinstall/resign (which invalidates the old
+            // TCC grant) leaves the calendar silently empty.
+            if Defaults[.showCalendar] {
+                await checkCalendarAuthorization()
+                await checkReminderAuthorization()
+            }
             await reloadCalendarAndReminderLists()
         }
     }

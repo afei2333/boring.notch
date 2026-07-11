@@ -138,7 +138,7 @@ extension Defaults.Keys {
 
     static let showNotHumanFace = Key<Bool>("showNotHumanFace", default: false)
     static let tileShowLabels = Key<Bool>("tileShowLabels", default: false)
-    static let showCalendar = Key<Bool>("showCalendar", default: false)
+    static let showCalendar = Key<Bool>("showCalendar", default: true)
     static let hideCompletedReminders = Key<Bool>("hideCompletedReminders", default: true)
     static let sliderColor = Key<SliderColorEnum>(
         "sliderUseAlbumArtColor",
@@ -174,6 +174,12 @@ extension Defaults.Keys {
     /// Bundle identifiers of the user's favorite apps shown in the Apps tab and
     /// in Home when no music is playing.
     static let launcherApps = Key<[String]>("launcherApps", default: [])
+
+    // MARK: Clipboard history
+    /// Recent copied text snippets, newest first. Capped by ClipboardManager.
+    static let clipboardHistory = Key<[String]>("clipboardHistory", default: [])
+    /// Filenames of copied images (PNG, in Application Support/ClipboardImages), newest first.
+    static let clipboardImages = Key<[String]>("clipboardImages", default: [])
     
     // MARK: Battery
     static let showPowerStatusNotifications = Key<Bool>("showPowerStatusNotifications", default: true)

@@ -294,6 +294,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Clean up any mimo daemon orphaned by a previous crash / force quit.
         MimoDaemonManager.shared.reapStaleDaemon()
 
+        ClipboardManager.shared.start()
+
         #if DEBUG
         ScreenshotSelfTest.shared.start()
         #endif

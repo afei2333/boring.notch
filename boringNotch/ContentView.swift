@@ -403,6 +403,8 @@ struct ContentView: View {
                         AIChatView()
                     case .apps:
                         AppLauncherView()
+                    case .clipboard:
+                        ClipboardHistoryView()
                     }
                 }
                 .transition(

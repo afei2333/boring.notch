@@ -105,7 +105,7 @@ struct WheelPicker: View {
     private func dayText(date: String, isToday: Bool, isSelected: Bool) -> some View {
         Text(date)
             .font(.caption)
-            .foregroundColor(isSelected ? .white : Color(white: 0.65))
+            .foregroundColor(isSelected ? .primary : .secondary)
     }
 
     private func dateCircle(date: Date, isToday: Bool, isSelected: Bool) -> some View {
@@ -120,7 +120,9 @@ struct WheelPicker: View {
             Text("\(date.date)")
                 .font(.body)
                 .fontWeight(.medium)
-                .foregroundColor(isSelected ? .white : Color(white: isToday ? 0.9 : 0.65))
+                // White only on the solid accent circle (today); elsewhere the
+                // background is translucent, so use adaptive colors.
+                .foregroundColor(isToday ? .white : (isSelected ? .primary : .secondary))
         }
     }
 
@@ -190,27 +192,30 @@ struct CalendarView: View {
                     Text(selectedDate.formatted(.dateTime.month(.abbreviated)))
                         .font(.title3)
                         .fontWeight(.semibold)
-                        .foregroundColor(.white)
+                        .foregroundColor(.primary)
                     Text(selectedDate.formatted(.dateTime.year()))
                         .font(.title3)
                         .fontWeight(.light)
-                        .foregroundColor(Color(white: 0.65))
+                        .foregroundColor(.secondary)
                 }
 
-                ZStack(alignment: .top) {
-                    WheelPicker(selectedDate: $selectedDate, config: Config())
-                    HStack(alignment: .top) {
-                        LinearGradient(
-                            colors: [Color.black, .clear], startPoint: .leading, endPoint: .trailing
-                        )
-                        .frame(width: 20)
-                        Spacer()
-                        LinearGradient(
-                            colors: [.clear, Color.black], startPoint: .leading, endPoint: .trailing
-                        )
-                        .frame(width: 20)
-                    }
-                }
+                WheelPicker(selectedDate: $selectedDate, config: Config())
+                    // Fade the edges via a mask instead of overlaying black
+                    // gradients, so it works on any background (light mode /
+                    // liquid glass), not just the black notch.
+                    .mask(
+                        HStack(spacing: 0) {
+                            LinearGradient(
+                                colors: [.clear, .black], startPoint: .leading, endPoint: .trailing
+                            )
+                            .frame(width: 20)
+                            Rectangle()
+                            LinearGradient(
+                                colors: [.black, .clear], startPoint: .leading, endPoint: .trailing
+                            )
+                            .frame(width: 20)
+                        }
+                    )
             }
 
             let filteredEvents = EventListView.filteredEvents(
@@ -252,13 +257,13 @@ struct EmptyEventsView: View {
         VStack {
             Image(systemName: "calendar.badge.checkmark")
                 .font(.title)
-                .foregroundColor(Color(white: 0.65))
+                .foregroundColor(.secondary)
             Text(Calendar.current.isDateInToday(selectedDate) ? "No events today" : "No events")
                 .font(.subheadline)
-                .foregroundColor(.white)
+                .foregroundColor(.primary)
             Text("Enjoy your free time!")
                 .font(.caption)
-                .foregroundColor(Color(white: 0.65))
+                .foregroundColor(.secondary)
         }
     }
 }
@@ -368,7 +373,7 @@ struct EventListView: View {
                     HStack {
                         Text(event.title)
                             .font(.callout)
-                            .foregroundColor(.white)
+                            .foregroundColor(.primary)
                             .lineLimit(showFullEventTitles ? nil : 1)
                         Spacer(minLength: 0)
                         VStack(alignment: .trailing, spacing: 4) {
@@ -376,11 +381,11 @@ struct EventListView: View {
                                 Text("All-day")
                                     .font(.caption)
                                     .fontWeight(.medium)
-                                    .foregroundColor(.white)
+                                    .foregroundColor(.primary)
                                     .lineLimit(1)
                             } else {
                                 Text(event.start, style: .time)
-                                    .foregroundColor(.white)
+                                    .foregroundColor(.primary)
                                     .font(.caption)
                             }
                         }
@@ -406,13 +411,13 @@ struct EventListView: View {
                         Text(event.title)
                             .font(.callout)
                             .fontWeight(.medium)
-                            .foregroundColor(.white)
+                            .foregroundColor(.primary)
                             .lineLimit(showFullEventTitles ? nil : 2)
 
                         if let location = event.location, !location.isEmpty {
                             Text(location)
                                 .font(.caption)
-                                .foregroundColor(Color(white: 0.65))
+                                .foregroundColor(.secondary)
                                 .lineLimit(1)
                         }
                     }
@@ -422,13 +427,13 @@ struct EventListView: View {
                             Text("All-day")
                                 .font(.caption)
                                 .fontWeight(.medium)
-                                .foregroundColor(.white)
+                                .foregroundColor(.primary)
                                 .lineLimit(1)
                         } else {
                             Text(event.start, style: .time)
-                                .foregroundColor(.white)
+                                .foregroundColor(.primary)
                             Text(event.end, style: .time)
-                                .foregroundColor(Color(white: 0.65))
+                                .foregroundColor(.secondary)
                         }
                     }
                     .font(.caption)
