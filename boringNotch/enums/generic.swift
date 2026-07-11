@@ -29,6 +29,7 @@ public enum NotchViews {
     case shelf
     case screenshot
     case ai
+    case apps
 }
 
 enum SettingsEnum {

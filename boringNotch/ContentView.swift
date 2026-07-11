@@ -401,6 +401,8 @@ struct ContentView: View {
                         ScreenshotView()
                     case .ai:
                         AIChatView()
+                    case .apps:
+                        AppLauncherView()
                     }
                 }
                 .transition(

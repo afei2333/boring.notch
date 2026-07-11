@@ -53,4 +53,5 @@ build/
 *.ipa
 *.xcarchive
 *.dSYM
+*.build_*/
 

@@ -169,6 +169,11 @@ extension Defaults.Keys {
         "musicControlSlotLimit",
         default: MusicControlButton.defaultLayout.count
     )
+
+    // MARK: Quick App Launcher
+    /// Bundle identifiers of the user's favorite apps shown in the Apps tab and
+    /// in Home when no music is playing.
+    static let launcherApps = Key<[String]>("launcherApps", default: [])
     
     // MARK: Battery
     static let showPowerStatusNotifications = Key<Bool>("showPowerStatusNotifications", default: true)

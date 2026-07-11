@@ -433,6 +433,7 @@ struct NotchHomeView: View {
     @ObservedObject var webcamManager = WebcamManager.shared
     @ObservedObject var batteryModel = BatteryStatusViewModel.shared
     @ObservedObject var coordinator = BoringViewCoordinator.shared
+    @ObservedObject var musicManager = MusicManager.shared
     let albumArtNamespace: Namespace.ID
 
     var body: some View {
@@ -449,9 +450,23 @@ struct NotchHomeView: View {
         Defaults[.showMirror] && webcamManager.cameraAvailable && vm.isCameraExpanded
     }
 
+    /// Matches the predicate used for the closed-notch music live activity:
+    /// only treat music as active while it is playing or freshly paused.
+    private var musicIsActive: Bool {
+        musicManager.isPlaying || !musicManager.isPlayerIdle
+    }
+
     private var mainContent: some View {
         HStack(alignment: .top, spacing: (shouldShowCamera && Defaults[.showCalendar]) ? 10 : 15) {
-            MusicPlayerView(albumArtNamespace: albumArtNamespace)
+            // Show the music player only when something is playing; otherwise
+            // surface the quick app launcher in the same spot.
+            if musicIsActive {
+                MusicPlayerView(albumArtNamespace: albumArtNamespace)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            } else {
+                AppLauncherView(compact: true)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
 
             if Defaults[.showCalendar] {
                 CalendarView()
@@ -473,6 +488,7 @@ struct NotchHomeView: View {
         }
         .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity))
         .blur(radius: vm.notchState == .closed ? 30 : 0)
+        .animation(.smooth, value: musicIsActive)
     }
 }
 
