@@ -405,6 +405,8 @@ struct ContentView: View {
                         AppLauncherView()
                     case .clipboard:
                         ClipboardHistoryView()
+                    case .stats:
+                        SystemStatsView()
                     }
                 }
                 .transition(

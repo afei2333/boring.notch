@@ -35,7 +35,7 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
 
     func setFavorite(_ favorite: Bool) async {
         let bundleID = playbackState.bundleIdentifier
-        
+
         if bundleID == "com.apple.Music" {
             let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music")
             if !runningApps.isEmpty {
@@ -152,7 +152,7 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
         MRMediaRemoteSetShuffleModeFunction(playbackState.isShuffled ? 1 : 3)
         playbackState.isShuffled.toggle()
     }
-    
+
     func toggleRepeat() async {
         // MRMediaRemoteSendCommandFunction(7, nil)
         let newRepeatMode = (playbackState.repeatMode == .off) ? 3 : (playbackState.repeatMode.rawValue - 1)
@@ -292,7 +292,7 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
         )
         
         newPlaybackState.volume = payload.volume ?? (diff ? self.playbackState.volume : 0.5)
-        
+
         self.playbackState = newPlaybackState
         
         // Fetch favorite state for supported apps asynchronously

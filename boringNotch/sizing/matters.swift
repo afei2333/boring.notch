@@ -27,7 +27,7 @@ let windowSize: CGSize = .init(width: openNotchSize.width, height: max(openNotch
 /// The height of the visible black notch area when open, depending on the view.
 func notchOpenHeight(for view: NotchViews) -> CGFloat {
     switch view {
-    case .screenshot, .clipboard:
+    case .screenshot, .clipboard, .stats:
         return expandedNotchHeight
     default:
         return openNotchSize.height

@@ -20,7 +20,8 @@ let tabs = [
     TabModel(label: "Screenshot", icon: "camera.viewfinder", view: .screenshot),
     TabModel(label: "AI", icon: "sparkles", view: .ai),
     TabModel(label: "Apps", icon: "square.grid.2x2.fill", view: .apps),
-    TabModel(label: "Clipboard", icon: "doc.on.clipboard", view: .clipboard)
+    TabModel(label: "Clipboard", icon: "doc.on.clipboard", view: .clipboard),
+    TabModel(label: "Stats", icon: "gauge.with.dots.needle.50percent", view: .stats)
 ]
 
 struct TabSelectionView: View {
