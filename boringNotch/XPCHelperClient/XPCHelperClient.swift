@@ -277,6 +277,39 @@ final class XPCHelperClient: NSObject {
         }
     }
 
+    // MARK: - Futu stock bridge
+
+    nonisolated func startStockBridge(scriptPath: String, pythonPath: String, openDPort: Int) async -> (port: Int, pid: Int, error: String?) {
+        do {
+            let service = await MainActor.run {
+                ensureRemoteService()
+            }
+            let result: (Int, Int, String?) = try await service.withContinuation { service, continuation in
+                service.startStockBridge(scriptPath: scriptPath, pythonPath: pythonPath, openDPort: openDPort) { port, pid, errorMessage in
+                    continuation.resume(returning: (port, pid, errorMessage))
+                }
+            }
+            return (result.0, result.1, result.2)
+        } catch {
+            return (0, 0, error.localizedDescription)
+        }
+    }
+
+    nonisolated func stopStockBridge(pid: Int) async -> Bool {
+        do {
+            let service = await MainActor.run {
+                ensureRemoteService()
+            }
+            return try await service.withContinuation { service, continuation in
+                service.stopStockBridge(pid: pid) { success in
+                    continuation.resume(returning: success)
+                }
+            }
+        } catch {
+            return false
+        }
+    }
+
     nonisolated func mimoDaemonStatus(pid: Int) async -> Bool {
         do {
             let service = await MainActor.run {

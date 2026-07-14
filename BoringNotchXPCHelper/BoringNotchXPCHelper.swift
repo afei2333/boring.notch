@@ -304,6 +304,95 @@ class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
         reply(isMimoProcess(pid))
     }
 
+    // MARK: - Futu stock bridge (python sidecar)
+
+    private static var stockProcesses: [Int: Process] = [:]
+
+    /// The bridge runs as `python3 …/stock_bridge.py`, so the executable path
+    /// can't identify it. Check the process's argv (KERN_PROCARGS2) instead, so
+    /// a recycled pid can never make us kill an unrelated process.
+    private func isStockBridgeProcess(_ pid: Int) -> Bool {
+        guard pid > 0 else { return false }
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return false }
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return false }
+        return String(decoding: buffer, as: UTF8.self).contains("stock_bridge.py")
+    }
+
+    @objc func startStockBridge(scriptPath: String, pythonPath: String, openDPort: Int, with reply: @escaping (Int, Int, String?) -> Void) {
+        guard scriptPath.hasSuffix("/stock_bridge.py"),
+              FileManager.default.fileExists(atPath: scriptPath) else {
+            reply(0, 0, "stock_bridge.py not found at \(scriptPath)")
+            return
+        }
+
+        // Configured interpreter (e.g. a conda env's python). "~" resolves to the
+        // real home since the helper is not sandboxed; fall back to whatever
+        // python3 the login shell finds if the configured one doesn't exist.
+        var python = (pythonPath as NSString).expandingTildeInPath
+        if python.isEmpty || !FileManager.default.isExecutableFile(atPath: python) {
+            python = "python3"
+        }
+
+        let process = Process()
+        // Login shell so a bare "python3" fallback resolves against the user's PATH;
+        // the helper's launchd env is minimal.
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        let quote = { (s: String) in "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        process.arguments = ["-lc", "exec \(quote(python)) \(quote(scriptPath)) --opend-port \(openDPort)"]
+        process.currentDirectoryURL = URL(fileURLWithPath: NSHomeDirectory())
+
+        let errPipe = Pipe()
+        let outPipe = Pipe()
+        process.standardError = errPipe
+        process.standardOutput = outPipe
+
+        let replyOnce = MimoStartReply(reply)
+
+        process.terminationHandler = { proc in
+            let exited = Int(proc.processIdentifier)
+            replyOnce.fulfill(port: 0, pid: 0, error: "stock bridge exited (status \(proc.terminationStatus)) before reporting a port")
+            Self.mimoLock.lock()
+            Self.stockProcesses.removeValue(forKey: exited)
+            Self.mimoLock.unlock()
+        }
+
+        do {
+            try process.run()
+        } catch {
+            replyOnce.fulfill(port: 0, pid: 0, error: "failed to launch stock bridge: \(error.localizedDescription)")
+            return
+        }
+
+        let pid = Int(process.processIdentifier)
+        Self.mimoLock.lock()
+        Self.stockProcesses[pid] = process
+        Self.mimoLock.unlock()
+
+        errPipe.fileHandleForReading.readabilityHandler = portScanningHandler(pid: pid, replyOnce: replyOnce)
+        outPipe.fileHandleForReading.readabilityHandler = portScanningHandler(pid: pid, replyOnce: replyOnce)
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + 20) {
+            replyOnce.fulfill(port: 0, pid: pid, error: "timed out waiting for stock bridge to report a port")
+        }
+    }
+
+    @objc func stopStockBridge(pid: Int, with reply: @escaping (Bool) -> Void) {
+        Self.mimoLock.lock()
+        let tracked = Self.stockProcesses.removeValue(forKey: pid)
+        Self.mimoLock.unlock()
+
+        if let tracked, tracked.isRunning {
+            tracked.terminate()
+            reply(true)
+            return
+        }
+        guard isStockBridgeProcess(pid) else { reply(false); return }
+        reply(kill(Int32(pid), SIGTERM) == 0)
+    }
+
     /// Returns a fresh readability handler (with its own accumulation buffer) that
     /// scans a pipe for the daemon's listening port, fulfills the reply once found,
     /// then degrades to a pure drain.

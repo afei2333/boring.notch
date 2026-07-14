@@ -96,6 +96,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         cleanupWindows()
         XPCHelperClient.shared.stopMonitoringAccessibilityAuthorization()
         MimoDaemonManager.shared.stopOnTerminate()
+        StockManager.shared.stopOnTerminate()
     }
 
     @MainActor
@@ -295,6 +296,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         MimoDaemonManager.shared.reapStaleDaemon()
 
         ClipboardManager.shared.start()
+
+        // Stock alerts must work app-wide, so the bridge starts with the app
+        // (only when the user actually watches something).
+        StockManager.shared.reapStaleBridge()
+        if !Defaults[.stockWatchlist].isEmpty {
+            StockManager.shared.start()
+        }
 
         #if DEBUG
         ScreenshotSelfTest.shared.start()

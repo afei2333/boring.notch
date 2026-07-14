@@ -32,6 +32,7 @@ public enum NotchViews {
     case apps
     case clipboard
     case stats
+    case stocks
 }
 
 enum SettingsEnum {
@@ -71,4 +72,14 @@ enum SliderColorEnum: String, CaseIterable, Defaults.Serializable {
     case white = "White"
     case albumArt = "Match album art"
     case accent = "Accent color"
+}
+
+/// Idle pixel-animation style on camera-less (external) displays.
+enum PixelAnimationStyle: String, CaseIterable, Identifiable, Defaults.Serializable {
+    case invader = "太空巡逻"
+    case matrixRain = "数字雨"
+    case gameOfLife = "生命游戏"
+    case twinkle = "星光闪烁"
+
+    var id: String { rawValue }
 }

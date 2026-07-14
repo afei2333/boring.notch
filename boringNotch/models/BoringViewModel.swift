@@ -110,6 +110,14 @@ class BoringViewModel: NSObject, ObservableObject {
             .store(in: &cancellables)
     }
 
+    /// true when this window's screen has a physical camera housing (built-in
+    /// notch display). The open-notch layout must keep controls out of the
+    /// housing area there; camera-less externals get the full width.
+    var screenHasCamera: Bool {
+        let screen = screenUUID.flatMap { NSScreen.screen(withUUID: $0) } ?? NSScreen.main
+        return (screen?.safeAreaInsets.top ?? 0) > 0
+    }
+
     // Computed property for effective notch height
     var effectiveClosedNotchHeight: CGFloat {
         let currentScreen = screenUUID.flatMap { NSScreen.screen(withUUID: $0) }

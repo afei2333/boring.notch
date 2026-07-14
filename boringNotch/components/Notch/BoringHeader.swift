@@ -30,23 +30,40 @@ struct BoringHeader: View {
         notchTheme == .liquidGlass ? .primary : .white
     }
 
+    /// Whether the tab row is enabled at all (shelf feature + content).
+    private var showTabs: Bool {
+        (!tvm.isEmpty || coordinator.alwaysShowTabs) && Defaults[.boringShelf]
+    }
+
+    // ponytail: fixed 5/3 tab split around the housing, sized for the 640pt
+    // open notch — recompute dynamically if tabs or open width ever change.
+    private static let leftTabs = Array(tabs.prefix(5))
+    private static let rightTabs = Array(tabs.dropFirst(5))
+
     var body: some View {
         HStack(spacing: 0) {
             HStack {
-                if (!tvm.isEmpty || coordinator.alwaysShowTabs) && Defaults[.boringShelf] {
-                    TabSelectionView()
+                // Camera screens: the housing hides the header's center (and the
+                // cursor can't go there), so tabs hug both sides of it, compact.
+                // Camera-less externals keep the full-width row on the left.
+                if showTabs {
+                    if vm.screenHasCamera {
+                        TabSelectionView(visibleTabs: Self.leftTabs, compact: true)
+                    } else {
+                        TabSelectionView()
+                    }
                 } else if vm.notchState == .open {
                     EmptyView()
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: vm.screenHasCamera ? .trailing : .leading)
             .opacity(vm.notchState == .closed ? 0 : 1)
             .blur(radius: vm.notchState == .closed ? 20 : 0)
             .zIndex(2)
 
-            if vm.notchState == .open {
+            if vm.notchState == .open && vm.screenHasCamera {
                 Rectangle()
-                    .fill(NSScreen.screen(withUUID: coordinator.selectedScreenUUID)?.safeAreaInsets.top ?? 0 > 0 ? .black : .clear)
+                    .fill(.black)
                     .frame(width: vm.closedNotchSize.width)
                     .mask {
                         NotchShape()
@@ -59,6 +76,10 @@ struct BoringHeader: View {
                         OpenNotchHUD(type: $coordinator.sneakPeek.type, value: $coordinator.sneakPeek.value, icon: $coordinator.sneakPeek.icon)
                             .transition(.scale(scale: 0.8).combined(with: .opacity))
                     } else {
+                        if vm.screenHasCamera && showTabs {
+                            TabSelectionView(visibleTabs: Self.rightTabs, compact: true)
+                            Spacer(minLength: 0)
+                        }
                         if Defaults[.showMirror] {
                             Button(action: {
                                 vm.toggleCameraPreview()

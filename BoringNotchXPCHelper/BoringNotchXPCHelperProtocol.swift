@@ -26,6 +26,10 @@ import Foundation
     func startMimoDaemon(workingDirectory: String, with reply: @escaping (_ port: Int, _ pid: Int, _ errorMessage: String?) -> Void)
     func stopMimoDaemon(pid: Int, with reply: @escaping (_ success: Bool) -> Void)
     func mimoDaemonStatus(pid: Int, with reply: @escaping (_ running: Bool) -> Void)
+    // Futu stock bridge — python sidecar (bundled stock_bridge.py) spawned by the
+    // helper for the same sandbox reason. Reports its port like the mimo daemon.
+    func startStockBridge(scriptPath: String, pythonPath: String, openDPort: Int, with reply: @escaping (_ port: Int, _ pid: Int, _ errorMessage: String?) -> Void)
+    func stopStockBridge(pid: Int, with reply: @escaping (_ success: Bool) -> Void)
 }
 
 /*

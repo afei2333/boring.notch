@@ -121,6 +121,11 @@ struct ContentView: View {
                         : cornerRadiusInsets.closed.bottom
                     )
                     .modifier(NotchBackground(theme: notchTheme, shape: currentNotchShape))
+                    // The window server click-throughs pixels with ~0 alpha, and
+                    // liquid-glass blank areas can render that transparent — a
+                    // click inside the notch then lands on the desktop. Keep every
+                    // notch pixel ≥1% alpha (same trick as the chin below).
+                    .background(currentNotchShape.fill(Color.black.opacity(0.01)))
                     .overlay(alignment: .top) {
                         Rectangle()
                             .fill(notchTheme == .liquidGlass ? Color.clear : Color.black)
@@ -329,7 +334,7 @@ struct ContentView: View {
                             .frame(width: 76, alignment: .trailing)
                         }
                         .frame(height: vm.effectiveClosedNotchHeight, alignment: .center)
-                      } else if coordinator.sneakPeek.show && (Defaults[.inlineHUD] || coordinator.sneakPeek.type == .screenshot) && (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && vm.notchState == .closed {
+                      } else if coordinator.sneakPeek.show && (Defaults[.inlineHUD] || coordinator.sneakPeek.type == .screenshot || coordinator.sneakPeek.type == .stockAlert) && (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && vm.notchState == .closed {
                           InlineHUD(type: $coordinator.sneakPeek.type, value: $coordinator.sneakPeek.value, icon: $coordinator.sneakPeek.icon, hoverAnimation: $isHovering, gestureProgress: $gestureProgress)
                               .transition(.opacity)
                       } else if vm.notchState == .closed && aiChat.hasLiveActivity && !coordinator.sneakPeek.show {
@@ -338,6 +343,10 @@ struct ContentView: View {
                       } else if (!coordinator.expandingView.show || coordinator.expandingView.type == .music) && vm.notchState == .closed && (musicManager.isPlaying || !musicManager.isPlayerIdle) && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed {
                           MusicLiveActivity()
                               .frame(alignment: .center)
+                      } else if !coordinator.expandingView.show && vm.notchState == .closed && (!musicManager.isPlaying && musicManager.isPlayerIdle) && !vm.screenHasCamera && !vm.hideOnClosed {
+                          // Camera-less externals: idle pixel animation in the bar.
+                          PixelIdleAnimation()
+                              .frame(width: vm.closedNotchSize.width - 20, height: vm.effectiveClosedNotchHeight)
                       } else if !coordinator.expandingView.show && vm.notchState == .closed && (!musicManager.isPlaying && musicManager.isPlayerIdle) && Defaults[.showNotHumanFace] && !vm.hideOnClosed  {
                           BoringFaceAnimation()
                        } else if vm.notchState == .open {
@@ -349,7 +358,7 @@ struct ContentView: View {
                        }
 
                       if coordinator.sneakPeek.show {
-                           if (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && (coordinator.sneakPeek.type != .screenshot) && !Defaults[.inlineHUD] && vm.notchState == .closed {
+                           if (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && (coordinator.sneakPeek.type != .screenshot) && (coordinator.sneakPeek.type != .stockAlert) && !Defaults[.inlineHUD] && vm.notchState == .closed {
                               SystemEventIndicatorModifier(
                                   eventType: $coordinator.sneakPeek.type,
                                   value: $coordinator.sneakPeek.value,
@@ -407,6 +416,8 @@ struct ContentView: View {
                         ClipboardHistoryView()
                     case .stats:
                         SystemStatsView()
+                    case .stocks:
+                        StocksView()
                     }
                 }
                 .transition(
@@ -920,6 +931,219 @@ struct NativeLiquidGlassView: View {
                 startRadius: 0,
                 endRadius: 180
             )
+        }
+    }
+}
+
+/// Idle eye-candy for camera-less (external) displays, shown in the closed
+/// notch bar. Style is user-selectable in Settings › Appearance; all variants
+/// are cheap low-fps Canvas redraws.
+struct PixelIdleAnimation: View {
+    @Default(.idlePixelAnimationStyle) private var style
+
+    var body: some View {
+        switch style {
+        case .invader: InvaderPatrolPixels()
+        case .matrixRain: MatrixRainPixels()
+        case .gameOfLife: GameOfLifePixels()
+        case .twinkle: TwinkleFieldPixels()
+        }
+    }
+}
+
+/// 太空巡逻: a classic space invader marching back and forth through a
+/// twinkling starfield. Stateless — everything derives from the clock.
+private struct InvaderPatrolPixels: View {
+    // Classic two-frame invader sprite, 11×8.
+    private static let frames: [[String]] = [
+        [
+            "..#.....#..",
+            "...#...#...",
+            "..#######..",
+            ".##.###.##.",
+            "###########",
+            "#.#######.#",
+            "#.#.....#.#",
+            "...##.##...",
+        ],
+        [
+            "..#.....#..",
+            "#..#...#..#",
+            "#.#######.#",
+            "###.###.###",
+            ".#########.",
+            "..#######..",
+            "..#.....#..",
+            ".#.......#.",
+        ],
+    ]
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.12)) { timeline in
+            Canvas { context, size in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+
+                // Starfield backdrop: sparse deterministic twinkle.
+                let cell: CGFloat = 8
+                for col in 0..<max(1, Int(size.width / cell)) {
+                    for row in 0..<max(1, Int(size.height / cell)) {
+                        let seed = UInt32(truncatingIfNeeded: (col &* 73856093) ^ (row &* 19349663))
+                        let h = Double(seed % 1000) / 1000
+                        guard h > 0.8 else { continue }
+                        let brightness = max(0, sin(t * (0.6 + h) + h * .pi * 2))
+                        guard brightness > 0.1 else { continue }
+                        let rect = CGRect(x: CGFloat(col) * cell + cell / 2,
+                                          y: CGFloat(row) * cell + cell / 2,
+                                          width: 1.5, height: 1.5)
+                        let color: Color = seed % 3 == 0 ? .cyan : .white
+                        context.fill(Path(rect), with: .color(color.opacity(0.1 + 0.4 * brightness)))
+                    }
+                }
+
+                // Marching invader: triangle-wave patrol, two-frame arm wiggle.
+                let rows = Self.frames[Int(t / 0.4) % 2]
+                let px = max(2, ((size.height - 4) / 8).rounded(.down))
+                let spriteWidth = 11 * px
+                let travel = max(1, size.width - spriteWidth)
+                let phase = t.truncatingRemainder(dividingBy: 22) / 22
+                let tri = phase < 0.5 ? phase * 2 : (1 - phase) * 2
+                let x0 = travel * tri
+                let y0 = (size.height - 8 * px) / 2
+                for (row, line) in rows.enumerated() {
+                    for (col, ch) in line.enumerated() where ch == "#" {
+                        let rect = CGRect(x: x0 + CGFloat(col) * px,
+                                          y: y0 + CGFloat(row) * px,
+                                          width: px, height: px)
+                        context.fill(Path(rect), with: .color(.mint.opacity(0.85)))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 数字雨: Matrix-style columns of falling green pixels with fading trails.
+/// Stateless — column speed/phase derive from a per-column hash.
+private struct MatrixRainPixels: View {
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.1)) { timeline in
+            Canvas { context, size in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                let cell: CGFloat = 4
+                let cols = max(1, Int(size.width / cell))
+                let rows = max(1, Int(size.height / cell))
+                let trail = 5
+                let span = Double(rows + trail)
+                for col in 0..<cols {
+                    let seed = UInt32(truncatingIfNeeded: col &* 2654435761)
+                    guard seed % 10 < 6 else { continue }  // ~60% of columns rain
+                    let speed = 3.0 + Double(seed % 100) / 100 * 5  // rows/second
+                    let offset = Double(seed % 1000) / 1000 * span
+                    let head = (t * speed + offset).truncatingRemainder(dividingBy: span)
+                    for k in 0..<trail {
+                        let row = Int(head) - k
+                        guard row >= 0, row < rows else { continue }
+                        let rect = CGRect(x: CGFloat(col) * cell + 1,
+                                          y: CGFloat(row) * cell + 1,
+                                          width: cell - 1.5, height: cell - 1.5)
+                        let color: Color = k == 0 ? .white : .green
+                        let alpha = k == 0 ? 0.9 : 0.5 * pow(0.6, Double(k))
+                        context.fill(Path(rect), with: .color(color.opacity(alpha)))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 生命游戏: Conway's Game of Life on a toroidal grid, reseeded when it dies
+/// out, gets stuck, or after ~45s so it never sits still forever.
+private struct GameOfLifePixels: View {
+    @State private var grid: [[Bool]] = []
+    @State private var stale = 0
+    @State private var steps = 0
+    private let timer = Timer.publish(every: 0.3, on: .main, in: .common).autoconnect()
+    private let cell: CGFloat = 4
+
+    var body: some View {
+        GeometryReader { geo in
+            Canvas { context, _ in
+                for (row, line) in grid.enumerated() {
+                    for (col, alive) in line.enumerated() where alive {
+                        let rect = CGRect(x: CGFloat(col) * cell + 1,
+                                          y: CGFloat(row) * cell + 1,
+                                          width: cell - 1, height: cell - 1)
+                        context.fill(Path(rect), with: .color(.mint.opacity(0.75)))
+                    }
+                }
+            }
+            .onAppear { reseed(geo.size) }
+            .onReceive(timer) { _ in step(geo.size) }
+        }
+    }
+
+    private func dims(_ size: CGSize) -> (rows: Int, cols: Int) {
+        (max(3, Int(size.height / cell)), max(3, Int(size.width / cell)))
+    }
+
+    private func reseed(_ size: CGSize) {
+        let (rows, cols) = dims(size)
+        grid = (0..<rows).map { _ in (0..<cols).map { _ in Double.random(in: 0...1) < 0.3 } }
+        stale = 0
+        steps = 0
+    }
+
+    private func step(_ size: CGSize) {
+        let (rows, cols) = dims(size)
+        guard grid.count == rows, grid.first?.count == cols else { return reseed(size) }
+        var next = grid
+        for row in 0..<rows {
+            for col in 0..<cols {
+                var neighbors = 0
+                for dr in -1...1 {
+                    for dc in -1...1 where !(dr == 0 && dc == 0) {
+                        if grid[(row + dr + rows) % rows][(col + dc + cols) % cols] { neighbors += 1 }
+                    }
+                }
+                next[row][col] = grid[row][col] ? (neighbors == 2 || neighbors == 3) : neighbors == 3
+            }
+        }
+        stale = next == grid ? stale + 1 : 0
+        grid = next
+        steps += 1
+        let population = grid.reduce(0) { $0 + $1.lazy.filter { $0 }.count }
+        if population == 0 || stale > 3 || steps > 150 { reseed(size) }
+    }
+}
+
+/// 星光闪烁: a sparse field of tiny colored pixels breathing on their own
+/// phase. Stateless per-cell hash.
+private struct TwinkleFieldPixels: View {
+    private static let palette: [Color] = [.cyan, .mint, .orange, .pink, .purple, .white]
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.15)) { timeline in
+            Canvas { context, size in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                let cell: CGFloat = 3
+                let gap: CGFloat = 4
+                for col in 0..<max(1, Int(size.width / (cell + gap))) {
+                    for row in 0..<max(1, Int(size.height / (cell + gap))) {
+                        let seed = UInt32(truncatingIfNeeded: (col &* 73856093) ^ (row &* 19349663))
+                        let h = Double(seed % 1000) / 1000
+                        guard h > 0.62 else { continue }
+                        let speed: Double = 0.8 + h * 1.6
+                        let phase: Double = h * Double.pi * 2
+                        let brightness: Double = max(0, sin(t * speed + phase))
+                        guard brightness > 0.05 else { continue }
+                        let rect = CGRect(x: CGFloat(col) * (cell + gap) + gap / 2,
+                                          y: CGFloat(row) * (cell + gap) + gap / 2,
+                                          width: cell, height: cell)
+                        let color = Self.palette[Int(seed % UInt32(Self.palette.count))]
+                        context.fill(Path(rect), with: .color(color.opacity(0.15 + 0.55 * brightness * brightness)))
+                    }
+                }
+            }
         }
     }
 }

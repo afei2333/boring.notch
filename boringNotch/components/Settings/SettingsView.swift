@@ -54,6 +54,9 @@ struct SettingsView: View {
                 NavigationLink(value: "Shortcuts") {
                     Label("Shortcuts", systemImage: "keyboard")
                 }
+                NavigationLink(value: "Stocks") {
+                    Label("Stocks", systemImage: "chart.line.uptrend.xyaxis")
+                }
                 // NavigationLink(value: "Extensions") {
                 //     Label("Extensions", systemImage: "puzzlepiece.extension")
                 // }
@@ -87,6 +90,8 @@ struct SettingsView: View {
                     Shelf()
                 case "Shortcuts":
                     Shortcuts()
+                case "Stocks":
+                    StockSettings()
                 case "Extensions":
                     GeneralSettings()
                 case "Advanced":
@@ -1165,6 +1170,7 @@ struct Appearance: View {
     @Default(.customVisualizers) var customVisualizers
     @Default(.selectedVisualizer) var selectedVisualizer
     @Default(.notchTheme) var notchTheme
+    @Default(.idlePixelAnimationStyle) var idlePixelAnimationStyle
 
     let icons: [String] = ["logo2"]
     @State private var selectedIcon: String = "logo2"
@@ -1390,6 +1396,11 @@ struct Appearance: View {
                 }
                 Defaults.Toggle(key: .showNotHumanFace) {
                     Text("Show cool face animation while inactive")
+                }
+                Picker("外接屏空闲像素动画", selection: $idlePixelAnimationStyle) {
+                    ForEach(PixelAnimationStyle.allCases) { style in
+                        Text(style.rawValue).tag(style)
+                    }
                 }
             } header: {
                 HStack {

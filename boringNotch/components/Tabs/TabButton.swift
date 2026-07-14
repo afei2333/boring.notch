@@ -11,12 +11,13 @@ struct TabButton: View {
     let label: String
     let icon: String
     let selected: Bool
+    var compact = false
     let onClick: () -> Void
-    
+
     var body: some View {
         Button(action: onClick) {
             Image(systemName: icon)
-                .padding(.horizontal, 15)
+                .padding(.horizontal, compact ? 8 : 15)
                 .contentShape(Capsule())
         }
         .buttonStyle(PlainButtonStyle())

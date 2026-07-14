@@ -181,6 +181,28 @@ extension Defaults.Keys {
     /// Filenames of copied images (PNG, in Application Support/ClipboardImages), newest first.
     static let clipboardImages = Key<[String]>("clipboardImages", default: [])
     
+    // MARK: Stocks
+    /// Watched symbols with per-symbol alert on/off.
+    static let stockWatchlist = Key<[WatchedStock]>("stockWatchlist", default: [])
+    /// Shared alert template (all alert-enabled symbols). nil = rule off.
+    static let stockAlertChangePct = Key<Double?>("stockAlertChangePct", default: 3)
+    static let stockAlertReversalPct = Key<Double?>("stockAlertReversalPct", default: nil)
+    /// Fired-alert history, newest first, capped at 50 in StockManager.fire.
+    static let stockAlertHistory = Key<[FiredAlert]>("stockAlertHistory", default: [])
+    /// true = closed-notch alert shows the message text; false = only bell + count.
+    static let stockAlertExplicit = Key<Bool>("stockAlertExplicit", default: true)
+    /// true = 绿涨红跌 (Apple style); false = 红涨绿跌 (Futu style).
+    static let stockGreenUp = Key<Bool>("stockGreenUp", default: true)
+    /// Port the local Futu OpenD listens on.
+    static let futuOpenDPort = Key<Int>("futuOpenDPort", default: 11111)
+    /// Python interpreter for stock_bridge.py (needs futu-api installed).
+    /// "~" expands in the helper; falls back to `python3` on PATH if missing.
+    static let stockPythonPath = Key<String>("stockPythonPath", default: "~/miniconda3/envs/stock/bin/python3")
+
+    // MARK: Idle animation
+    /// Pixel animation shown in the closed bar on camera-less displays.
+    static let idlePixelAnimationStyle = Key<PixelAnimationStyle>("idlePixelAnimationStyle", default: .invader)
+
     // MARK: Battery
     static let showPowerStatusNotifications = Key<Bool>("showPowerStatusNotifications", default: true)
     static let showBatteryIndicator = Key<Bool>("showBatteryIndicator", default: true)

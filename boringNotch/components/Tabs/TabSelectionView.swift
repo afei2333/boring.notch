@@ -21,16 +21,22 @@ let tabs = [
     TabModel(label: "AI", icon: "sparkles", view: .ai),
     TabModel(label: "Apps", icon: "square.grid.2x2.fill", view: .apps),
     TabModel(label: "Clipboard", icon: "doc.on.clipboard", view: .clipboard),
-    TabModel(label: "Stats", icon: "gauge.with.dots.needle.50percent", view: .stats)
+    TabModel(label: "Stats", icon: "gauge.with.dots.needle.50percent", view: .stats),
+    TabModel(label: "Stocks", icon: "chart.line.uptrend.xyaxis", view: .stocks)
 ]
 
 struct TabSelectionView: View {
+    /// Subset shown by this instance — camera screens split the row into two
+    /// instances, one on each side of the housing.
+    var visibleTabs: [TabModel] = tabs
+    var compact = false
+
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     @Namespace var animation
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(tabs) { tab in
-                    TabButton(label: tab.label, icon: tab.icon, selected: coordinator.currentView == tab.view) {
+            ForEach(visibleTabs) { tab in
+                    TabButton(label: tab.label, icon: tab.icon, selected: coordinator.currentView == tab.view, compact: compact) {
                         withAnimation(.smooth) {
                             coordinator.currentView = tab.view
                         }

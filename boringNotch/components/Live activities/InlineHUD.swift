@@ -17,7 +17,35 @@ struct InlineHUD: View {
     @Binding var gestureProgress: CGFloat
     var body: some View {
         HStack {
-            if type == .screenshot {
+            if type == .stockAlert {
+                // Stock alert: explicit style shows the message text, implicit only
+                // the bell; `value` carries the accumulated unread alert count.
+                HStack(spacing: 8) {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .foregroundStyle(.primary)
+                        .imageScale(.medium)
+                    if !BoringViewCoordinator.shared.sneakPeek.message.isEmpty {
+                        Text(BoringViewCoordinator.shared.sneakPeek.message)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                    } else {
+                        Text("股价提醒")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.primary)
+                    }
+                    if value > 1 {
+                        Text("\(Int(value))")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(.red))
+                    }
+                }
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            } else if type == .screenshot {
                 HStack(spacing: 8) {
                     Image(systemName: "camera.viewfinder")
                         .foregroundStyle(.primary)
