@@ -19,6 +19,8 @@ error message via /quotes) even when the SDK is not installed.
 
 import argparse
 import json
+import math
+import os
 import threading
 import time as _time
 from datetime import datetime
@@ -90,12 +92,15 @@ def _merge_quote(code, **fields):
 
 
 def _f(row, key):
-    """Float field or None (futu uses 'N/A' strings for missing values)."""
+    """Finite float field or None. Futu uses 'N/A' strings AND NaN floats for
+    missing values (e.g. ETF pe/marketCap); a bare NaN in json.dumps output is
+    invalid JSON and makes Swift's JSONDecoder reject the whole payload."""
     v = row.get(key)
     try:
-        return float(v)
+        f = float(v)
     except (TypeError, ValueError):
         return None
+    return f if math.isfinite(f) else None
 
 
 # US extended-hours raw fields kept on the quote dict; the active session is
@@ -246,6 +251,10 @@ def _watch(symbols):
     ok, errors = [], []
     for code in new:
         ret, err = qc.subscribe([code], [FT.SubType.QUOTE, FT.SubType.RT_DATA, FT.SubType.K_1M])
+        if ret != FT.RET_OK:
+            # Some securities (ETFs, new listings) reject RT_DATA/K_1M; quotes
+            # still work — degrade to QUOTE-only instead of failing entirely.
+            ret, err = qc.subscribe([code], [FT.SubType.QUOTE])
         (ok.append(code) if ret == FT.RET_OK else errors.append(f"{code}: {err}"))
     with LOCK:
         WATCHED.update(ok)
@@ -254,6 +263,85 @@ def _watch(symbols):
         _fetch_snapshot(ok)  # names, 52w, initial prices
         threading.Thread(target=_prime_rt_history, args=(ok,), daemon=True).start()
     return not errors
+
+
+# Symbol search: full code+name universe per (market, type), loaded lazily on
+# first /search (~26s: get_stock_basicinfo quota is 10/30s), then in-memory.
+BASICINFO = {}          # (market, sectype) -> [{"symbol", "name"}]
+BASICINFO_STATE = "idle"  # idle | loading | ready
+SEARCH_UNIVERSE = [("HK", "STOCK"), ("US", "STOCK"), ("SH", "STOCK"), ("SZ", "STOCK"),
+                   ("HK", "ETF"), ("US", "ETF"), ("SH", "ETF"), ("SZ", "ETF")]
+UNIVERSE_CACHE = os.path.expanduser(
+    "~/Library/Caches/theboringteam.boringnotch.stock-universe.json")
+
+
+def _load_basicinfo():
+    global BASICINFO_STATE
+    # Disk cache: the universe barely changes and a fresh fetch takes ~30s of
+    # empty search results per bridge restart. 7-day TTL.
+    try:
+        if _time.time() - os.path.getmtime(UNIVERSE_CACHE) < 7 * 86400:
+            with open(UNIVERSE_CACHE) as f:
+                cached = json.load(f)
+            if len(cached) == len(SEARCH_UNIVERSE):
+                with LOCK:
+                    for key, rows in cached.items():
+                        BASICINFO[tuple(key.split("|"))] = rows
+                BASICINFO_STATE = "ready"
+                return
+    except (OSError, ValueError):
+        pass
+    qc = _ctx()
+    if qc is None:
+        BASICINFO_STATE = "idle"  # retry on next search
+        return
+    for market, stype in SEARCH_UNIVERSE:
+        if (market, stype) in BASICINFO:
+            continue
+        ret, data = qc.get_stock_basicinfo(getattr(FT.Market, market),
+                                           getattr(FT.SecurityType, stype))
+        if ret == FT.RET_OK:
+            rows = [{"symbol": str(r["code"]), "name": str(r.get("name") or "")}
+                    for r in data.to_dict("records")]
+            with LOCK:
+                BASICINFO[(market, stype)] = rows
+        _time.sleep(3.2)  # frequency limit
+    BASICINFO_STATE = "ready"
+    with LOCK:
+        dump = {"|".join(k): v for k, v in BASICINFO.items()}
+    if len(dump) == len(SEARCH_UNIVERSE):  # don't freeze a partial load for 7 days
+        try:
+            with open(UNIVERSE_CACHE, "w") as f:
+                json.dump(dump, f)
+        except OSError:
+            pass
+
+
+def _search_payload(q):
+    global BASICINFO_STATE
+    if BASICINFO_STATE == "idle":
+        BASICINFO_STATE = "loading"
+        threading.Thread(target=_load_basicinfo, daemon=True).start()
+    ql = q.strip().upper()
+    exact, prefix, contains = [], [], []
+    if ql:
+        with LOCK:
+            lists = list(BASICINFO.values())
+        for rows in lists:
+            for r in rows:
+                code = r["symbol"].upper()
+                bare = code.split(".", 1)[-1]
+                name = r["name"].upper()
+                if code == ql or bare == ql or bare.lstrip("0") == ql.lstrip("0"):
+                    exact.append(r)
+                elif bare.startswith(ql) or code.startswith(ql) or name.startswith(ql):
+                    prefix.append(r)
+                elif ql in name or ql in code:
+                    contains.append(r)
+            if len(exact) + len(prefix) >= 20:
+                break
+    return {"ok": True, "loading": BASICINFO_STATE != "ready",
+            "results": (exact + prefix + contains)[:20]}
 
 
 def _downsample(points, limit=120):
@@ -337,6 +425,9 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         if url.path == "/quotes":
             self._json(_quotes_payload())
+        elif url.path == "/search":
+            q = (parse_qs(url.query).get("q") or [""])[0]
+            self._json(_search_payload(q))
         elif url.path == "/snapshot":
             symbol = (parse_qs(url.query).get("symbol") or [""])[0]
             if not symbol:

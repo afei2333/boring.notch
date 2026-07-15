@@ -109,6 +109,12 @@ struct WatchedStock: Codable, Hashable, Defaults.Serializable {
     }
 }
 
+struct StockSearchResult: Codable, Identifiable, Equatable {
+    let symbol: String
+    let name: String
+    var id: String { symbol }
+}
+
 struct FiredAlert: Identifiable, Equatable, Codable, Defaults.Serializable {
     var id = UUID()
     let symbol: String
@@ -256,11 +262,19 @@ final class StockManager: ObservableObject {
 
     // MARK: Watchlist
 
-    func addSymbol(_ raw: String) {
+    /// Returns false when the input doesn't normalize to a plausible Futu code
+    /// (e.g. a stock NAME typed before search results arrived) — such an entry
+    /// would retry subscribe forever and pin a "代码格式不正确" error banner.
+    @discardableResult
+    func addSymbol(_ raw: String) -> Bool {
         let symbol = normalize(raw)
-        guard !symbol.isEmpty, !watchlist.contains(where: { $0.symbol == symbol }) else { return }
+        guard symbol.range(of: #"^(US|HK|SH|SZ)\.[A-Z0-9]{1,10}$"#, options: .regularExpression) != nil else {
+            return false
+        }
+        guard !watchlist.contains(where: { $0.symbol == symbol }) else { return true }
         watchlist.append(WatchedStock(symbol: symbol))
         if case .ready = state {} else { start() }
+        return true
     }
 
     func removeSymbol(_ symbol: String) {
@@ -353,6 +367,26 @@ final class StockManager: ObservableObject {
         } catch {
             bridgeError = "bridge unreachable: \(error.localizedDescription)"
         }
+    }
+
+    private struct SearchResponse: Codable {
+        let loading: Bool
+        let results: [StockSearchResult]
+    }
+
+    /// Code/name search against the bridge's cached Futu universe.
+    /// `loading` is true while the bridge is still downloading the lists (~30s
+    /// after the first search) — partial results may already be returned.
+    func search(_ query: String) async -> (results: [StockSearchResult], loading: Bool) {
+        guard let baseURL,
+              var components = URLComponents(url: baseURL.appendingPathComponent("search"), resolvingAgainstBaseURL: false)
+        else { return ([], false) }
+        components.queryItems = [URLQueryItem(name: "q", value: query)]
+        guard let url = components.url,
+              let (data, _) = try? await URLSession.shared.data(from: url),
+              let response = try? JSONDecoder().decode(SearchResponse.self, from: data)
+        else { return ([], false) }
+        return (response.results, response.loading)
     }
 
     /// Fresh snapshot for the detail page (52w, PE, market cap).

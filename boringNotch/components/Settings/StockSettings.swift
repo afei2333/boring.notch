@@ -21,16 +21,68 @@ struct StockSettings: View {
     @Default(.futuOpenDPort) var openDPort
     @Default(.stockPythonPath) var pythonPath
     @State private var newSymbol = ""
+    @State private var suggestions: [StockSearchResult] = []
+    @State private var searchLoading = false
+    @State private var searchTask: Task<Void, Never>?
+    @State private var addRejected = false
 
     var body: some View {
         Form {
             Section("自选标的") {
                 HStack {
-                    TextField("代码，如 HK.00700 / AAPL / SH.600519", text: $newSymbol)
+                    TextField("代码或名称，如 腾讯 / AAPL / HK.00700", text: $newSymbol)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(addSymbol)
+                        .onChange(of: newSymbol) { _, query in
+                            addRejected = false
+                            searchTask?.cancel()
+                            let trimmed = query.trimmingCharacters(in: .whitespaces)
+                            guard !trimmed.isEmpty else {
+                                suggestions = []
+                                searchLoading = false
+                                return
+                            }
+                            searchTask = Task {
+                                try? await Task.sleep(for: .milliseconds(250))
+                                guard !Task.isCancelled else { return }
+                                let (results, loading) = await manager.search(trimmed)
+                                guard !Task.isCancelled else { return }
+                                suggestions = results
+                                searchLoading = loading
+                            }
+                        }
                     Button("添加", action: addSymbol)
                         .disabled(newSymbol.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                if addRejected {
+                    Text("无法识别的代码 — 输入名称或代码后从搜索结果中选择")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+                if searchLoading, !newSymbol.isEmpty {
+                    Text("正在从 OpenD 加载标的列表，结果可能不全…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(suggestions.prefix(8)) { result in
+                    Button {
+                        manager.addSymbol(result.symbol)
+                        newSymbol = ""
+                        suggestions = []
+                    } label: {
+                        HStack {
+                            Text(result.name.isEmpty ? result.symbol : result.name)
+                            Text(result.symbol)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Image(systemName: manager.watchlist.contains { $0.symbol == result.symbol }
+                                  ? "checkmark.circle.fill" : "plus.circle")
+                                .foregroundStyle(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
                 if manager.watchlist.isEmpty {
                     Text("尚未添加自选")
@@ -88,8 +140,14 @@ struct StockSettings: View {
     }
 
     private func addSymbol() {
-        manager.addSymbol(newSymbol)
-        newSymbol = ""
+        // Prefer the top suggestion so 回车 on a name query adds the right code.
+        let added = suggestions.first.map { manager.addSymbol($0.symbol) }
+            ?? manager.addSymbol(newSymbol)
+        if added {
+            newSymbol = ""
+            suggestions = []
+        }
+        addRejected = !added
     }
 }
 
