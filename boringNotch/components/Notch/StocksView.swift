@@ -229,7 +229,8 @@ private struct StockCard: View {
             .frame(width: 74, alignment: .leading)
             StockSparkline(points: quote.rt ?? [],
                            lastClose: quote.ext?.base ?? quote.lastClose,
-                           color: trendColor)
+                           color: trendColor,
+                           segments: quote.sessionSegments)
                 .frame(maxWidth: .infinity)
                 .frame(height: 26)
             VStack(alignment: .trailing, spacing: 2) {
@@ -287,16 +288,34 @@ struct StockSparkline: View {
     let points: [StockQuote.RTPoint]
     let lastClose: Double?
     let color: Color
+    var segments: [(start: Int, end: Int)] = [(570, 960)]
+
+    /// Elapsed trading minutes at "HH:MM" (lunch break compressed away).
+    private func elapsed(_ t: String) -> Int {
+        let parts = t.split(separator: ":")
+        guard parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]) else { return 0 }
+        let minuteOfDay = h * 60 + m
+        var acc = 0
+        for seg in segments {
+            if minuteOfDay >= seg.end { acc += seg.end - seg.start }
+            else { return acc + max(0, minuteOfDay - seg.start) }
+        }
+        return acc
+    }
+
+    private var sessionMinutes: Int {
+        segments.reduce(0) { $0 + $1.end - $1.start }
+    }
 
     var body: some View {
         if points.count < 2 {
             Rectangle().fill(.clear)
         } else {
             Chart {
-                ForEach(Array(points.enumerated()), id: \.offset) { index, point in
-                    LineMark(x: .value("t", index), y: .value("p", point.p))
+                ForEach(Array(points.enumerated()), id: \.offset) { _, point in
+                    LineMark(x: .value("t", elapsed(point.t)), y: .value("p", point.p))
                         .lineStyle(StrokeStyle(lineWidth: 1.2))
-                    AreaMark(x: .value("t", index),
+                    AreaMark(x: .value("t", elapsed(point.t)),
                              yStart: .value("min", yDomain.lowerBound),
                              yEnd: .value("p", point.p))
                         .foregroundStyle(LinearGradient(colors: [color.opacity(0.3), color.opacity(0.02)],
@@ -309,6 +328,7 @@ struct StockSparkline: View {
                 }
             }
             .foregroundStyle(color)
+            .chartXScale(domain: 0...sessionMinutes)
             .chartXAxis(.hidden)
             .chartYAxis(.hidden)
             .chartYScale(domain: yDomain.lowerBound...yDomain.upperBound)
@@ -449,7 +469,8 @@ private struct StockDetailView: View {
                 VStack(spacing: 8) {
                     StockSparkline(points: quote.rt ?? [],
                                    lastClose: quote.ext?.base ?? quote.lastClose,
-                                   color: stockTrendColor(quote.ext?.changePct ?? quote.changePct))
+                                   color: stockTrendColor(quote.ext?.changePct ?? quote.changePct),
+                                   segments: quote.sessionSegments)
                         .frame(height: 84)
                         .padding(.horizontal, 12)
 

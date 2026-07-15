@@ -50,6 +50,11 @@ struct ContentView: View {
         return .classicBlack
     }
 
+    private var isBuiltInDisplay: Bool {
+        let screen = vm.screenUUID.flatMap({ NSScreen.screen(withUUID: $0) }) ?? NSScreen.main
+        return screen?.displayID.map { CGDisplayIsBuiltin($0) != 0 } ?? false
+    }
+
     // Shared interactive spring for movement/resizing to avoid conflicting animations
     private let animationSpring = Animation.interactiveSpring(response: 0.38, dampingFraction: 0.8, blendDuration: 0)
 
@@ -334,7 +339,7 @@ struct ContentView: View {
                             .frame(width: 76, alignment: .trailing)
                         }
                         .frame(height: vm.effectiveClosedNotchHeight, alignment: .center)
-                      } else if coordinator.sneakPeek.show && (Defaults[.inlineHUD] || coordinator.sneakPeek.type == .screenshot || coordinator.sneakPeek.type == .stockAlert) && (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && vm.notchState == .closed {
+                      } else if coordinator.sneakPeek.show && (Defaults[.inlineHUD] || coordinator.sneakPeek.type == .screenshot || (coordinator.sneakPeek.type == .stockAlert && !isBuiltInDisplay)) && (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && vm.notchState == .closed {
                           InlineHUD(type: $coordinator.sneakPeek.type, value: $coordinator.sneakPeek.value, icon: $coordinator.sneakPeek.icon, hoverAnimation: $isHovering, gestureProgress: $gestureProgress)
                               .transition(.opacity)
                       } else if vm.notchState == .closed && aiChat.hasLiveActivity && !coordinator.sneakPeek.show {
@@ -343,7 +348,7 @@ struct ContentView: View {
                       } else if (!coordinator.expandingView.show || coordinator.expandingView.type == .music) && vm.notchState == .closed && (musicManager.isPlaying || !musicManager.isPlayerIdle) && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed {
                           MusicLiveActivity()
                               .frame(alignment: .center)
-                      } else if !coordinator.expandingView.show && vm.notchState == .closed && (!musicManager.isPlaying && musicManager.isPlayerIdle) && !vm.screenHasCamera && !vm.hideOnClosed {
+                      } else if !coordinator.expandingView.show && vm.notchState == .closed && (!musicManager.isPlaying && musicManager.isPlayerIdle) && !vm.screenHasCamera && !vm.hideOnClosed && Defaults[.enableIdlePixelAnimation] {
                           // Camera-less externals: idle pixel animation in the bar.
                           PixelIdleAnimation()
                               .frame(width: vm.closedNotchSize.width - 20, height: vm.effectiveClosedNotchHeight)
@@ -947,6 +952,15 @@ struct PixelIdleAnimation: View {
         case .matrixRain: MatrixRainPixels()
         case .gameOfLife: GameOfLifePixels()
         case .twinkle: TwinkleFieldPixels()
+        case .pixelPet: PixelPetPixels()
+        case .snake: SnakePixels()
+        case .campfire: CampfirePixels()
+        case .aquarium: AquariumPixels()
+        case .shmup: ShmupPixels()
+        case .pong: PongPixels()
+        case .nyanCat: NyanCatPixels()
+        case .dinoRun: DinoRunPixels()
+        case .woodenFish: WoodenFishPixels()
         }
     }
 }
@@ -1145,6 +1159,1038 @@ private struct TwinkleFieldPixels: View {
                 }
             }
         }
+    }
+}
+
+/// 像素萌宠: a small square-bodied pixel pet with antenna ears, sitting in
+/// place while breathing and blinking. Stateless — everything derives from
+/// the clock.
+private struct PixelPetPixels: View {
+    private static let eyesOpen: [String] = [
+        "a.......a",
+        ".#######.",
+        "#########",
+        "##o###o##",
+        "#########",
+        "#########",
+        "#########",
+        ".#######.",
+    ]
+    private static let eyesClosed: [String] = [
+        "a.......a",
+        ".#######.",
+        "#########",
+        "##_###_##",
+        "#########",
+        "#########",
+        "#########",
+        ".#######.",
+    ]
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.12)) { timeline in
+            Canvas { context, size in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                let px = max(2, ((size.height - 4) / 8).rounded(.down))
+                let spriteWidth = 9 * px
+                let spriteHeight = 8 * px
+                let x0 = (size.width - spriteWidth) / 2
+                let bob = sin(t * 1.4) * min(1.5, px * 0.3)
+                let y0 = (size.height - spriteHeight) / 2 + bob
+
+                let blinking = t.truncatingRemainder(dividingBy: 3.2) < 0.15
+                let rows = blinking ? Self.eyesClosed : Self.eyesOpen
+                let earSway = sin(t * 2.2) * min(1.0, px * 0.2)
+
+                for (row, line) in rows.enumerated() {
+                    for (col, ch) in line.enumerated() where ch != "." && ch != "_" {
+                        let dx: CGFloat = ch == "a" ? (col == 0 ? -earSway : earSway) : 0
+                        let rect = CGRect(x: x0 + CGFloat(col) * px + dx,
+                                          y: y0 + CGFloat(row) * px,
+                                          width: px, height: px)
+                        let color: Color
+                        switch ch {
+                        case "a", "o":
+                            color = .black
+                        default:
+                            color = row < 4
+                                ? Color(red: 1.0, green: 0.6, blue: 0.15)
+                                : Color(red: 0.92, green: 0.35, blue: 0.25)
+                        }
+                        context.fill(Path(rect), with: .color(color.opacity(0.9)))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 贪吃蛇: a small retro snake chasing food on a pixel grid.
+/// Moves automatically using a simple shortest-path heuristic.
+private struct SnakePixels: View {
+    struct Point: Hashable, Equatable {
+        var x: Int
+        var y: Int
+    }
+
+    @State private var snake: [Point] = []
+    @State private var food: Point = Point(x: 0, y: 0)
+    @State private var steps = 0
+    private let timer = Timer.publish(every: 0.16, on: .main, in: .common).autoconnect()
+    private let cell: CGFloat = 4
+
+    var body: some View {
+        GeometryReader { geo in
+            Canvas { context, size in
+                // Draw food (red pixel)
+                let foodRect = CGRect(x: CGFloat(food.x) * cell + 1,
+                                      y: CGFloat(food.y) * cell + 1,
+                                      width: cell - 1.5, height: cell - 1.5)
+                context.fill(Path(foodRect), with: .color(.red))
+
+                // Draw snake segments
+                for (index, segment) in snake.enumerated() {
+                    let rect = CGRect(x: CGFloat(segment.x) * cell + 1,
+                                      y: CGFloat(segment.y) * cell + 1,
+                                      width: cell - 1.5, height: cell - 1.5)
+                    // Head is white, body fades from mint to deep green
+                    let color: Color = index == 0
+                        ? .white
+                        : Color(red: 0.0,
+                                green: max(0.4, 0.95 - Double(index) * 0.05),
+                                blue: max(0.3, 0.7 - Double(index) * 0.03))
+                    context.fill(Path(rect), with: .color(color.opacity(0.9)))
+                }
+            }
+            .onAppear { reseed(geo.size) }
+            .onReceive(timer) { _ in step(geo.size) }
+        }
+    }
+
+    private func dims(_ size: CGSize) -> (rows: Int, cols: Int) {
+        (max(3, Int(size.height / cell)), max(3, Int(size.width / cell)))
+    }
+
+    private func reseed(_ size: CGSize) {
+        let (rows, cols) = dims(size)
+        guard rows > 2, cols > 4 else { return }
+
+        // Start in the middle
+        let midY = rows / 2
+        let midX = cols / 2
+        snake = [
+            Point(x: midX, y: midY),
+            Point(x: midX - 1, y: midY),
+            Point(x: midX - 2, y: midY)
+        ]
+
+        spawnFood(rows: rows, cols: cols)
+        steps = 0
+    }
+
+    private func spawnFood(rows: Int, cols: Int) {
+        var attempts = 0
+        while attempts < 100 {
+            let rx = Int.random(in: 0..<cols)
+            let ry = Int.random(in: 0..<rows)
+            let candidate = Point(x: rx, y: ry)
+            if !snake.contains(candidate) {
+                food = candidate
+                return
+            }
+            attempts += 1
+        }
+        food = Point(x: 0, y: 0)
+    }
+
+    private func step(_ size: CGSize) {
+        let (rows, cols) = dims(size)
+        guard rows > 2, cols > 4 else { return }
+        if snake.isEmpty {
+            reseed(size)
+            return
+        }
+
+        let head = snake[0]
+
+        // Find candidate moves
+        let possibleMoves = [
+            Point(x: head.x + 1, y: head.y),
+            Point(x: head.x - 1, y: head.y),
+            Point(x: head.x, y: head.y + 1),
+            Point(x: head.x, y: head.y - 1)
+        ]
+
+        // Filter valid moves (within bounds, not hitting body)
+        let validMoves = possibleMoves.filter { p in
+            p.x >= 0 && p.x < cols && p.y >= 0 && p.y < rows && !snake.contains(p)
+        }
+
+        if validMoves.isEmpty {
+            reseed(size)
+            return
+        }
+
+        // Choose move closest to food (Manhattan distance)
+        let bestMove = validMoves.min { p1, p2 in
+            let d1 = abs(p1.x - food.x) + abs(p1.y - food.y)
+            let d2 = abs(p2.x - food.x) + abs(p2.y - food.y)
+            return d1 < d2
+        } ?? validMoves[0]
+
+        // Move head
+        if bestMove == food {
+            snake.insert(bestMove, at: 0)
+            spawnFood(rows: rows, cols: cols)
+        } else {
+            snake.insert(bestMove, at: 0)
+            snake.removeLast()
+        }
+
+        steps += 1
+
+        // Reset if snake is too long or steps exceed maximum (avoid loops/getting stuck)
+        if snake.count > 25 || steps > 500 {
+            reseed(size)
+        }
+    }
+}
+
+/// 温馨篝火: a cozy campfire animation with rising sparks and flickers.
+private struct CampfirePixels: View {
+    struct Ember: Identifiable {
+        let id = UUID()
+        var x: CGFloat
+        var y: CGFloat
+        var vx: CGFloat
+        var vy: CGFloat
+        var life: Double // 1.0 down to 0.0
+        var size: CGFloat
+        var color: Color
+    }
+
+    @State private var embers: [Ember] = []
+    @State private var frameCounter = 0
+    private let timer = Timer.publish(every: 0.08, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        GeometryReader { geo in
+            Canvas { context, size in
+                let midX = size.width / 2
+                let groundY = size.height - 2
+                let actionFrame = (frameCounter / 8) % 2
+                let wiggle = CGFloat(frameCounter % 2)
+
+                // 1. Draw Two People Warming Hands
+                let skinColor = Color(red: 0.95, green: 0.75, blue: 0.65)
+                let blueCoat = Color(red: 0.2, green: 0.5, blue: 0.7)
+                let redCoat = Color(red: 0.75, green: 0.3, blue: 0.3)
+
+                // Left Person
+                context.fill(Path(CGRect(x: midX - 22, y: groundY - 12, width: 3, height: 3)), with: .color(skinColor)) // Head
+                context.fill(Path(CGRect(x: midX - 23, y: groundY - 9, width: 4, height: 7)), with: .color(blueCoat))  // Body
+                if actionFrame == 0 {
+                    context.fill(Path(CGRect(x: midX - 19, y: groundY - 7, width: 3, height: 1.5)), with: .color(skinColor)) // Extend hand
+                } else {
+                    context.fill(Path(CGRect(x: midX - 21, y: groundY - 7.5 + wiggle, width: 2, height: 1.5)), with: .color(skinColor)) // Rub hand
+                }
+
+                // Right Person
+                context.fill(Path(CGRect(x: midX + 19, y: groundY - 12, width: 3, height: 3)), with: .color(skinColor)) // Head
+                context.fill(Path(CGRect(x: midX + 19, y: groundY - 9, width: 4, height: 7)), with: .color(redCoat))   // Body
+                if actionFrame == 0 {
+                    context.fill(Path(CGRect(x: midX + 16, y: groundY - 7, width: 3, height: 1.5)), with: .color(skinColor)) // Extend hand
+                } else {
+                    context.fill(Path(CGRect(x: midX + 19, y: groundY - 7.5 + wiggle, width: 2, height: 1.5)), with: .color(skinColor)) // Rub hand
+                }
+
+                // 2. Draw Fire Logs (Larger)
+                let logPath = Path { path in
+                    path.addRect(CGRect(x: midX - 12, y: groundY - 3, width: 24, height: 3))
+                    path.addRect(CGRect(x: midX - 8, y: groundY - 6, width: 16, height: 3))
+                }
+                context.fill(logPath, with: .color(Color(red: 0.45, green: 0.25, blue: 0.1)))
+
+                // 3. Draw Embers/Flames
+                for ember in embers {
+                    let rect = CGRect(
+                        x: ember.x - ember.size / 2,
+                        y: ember.y - ember.size / 2,
+                        width: ember.size,
+                        height: ember.size
+                    )
+                    context.fill(Path(rect), with: .color(ember.color.opacity(ember.life)))
+                }
+            }
+            .onReceive(timer) { _ in
+                updateCampfire(geo.size)
+            }
+        }
+    }
+
+    private func updateCampfire(_ size: CGSize) {
+        let midX = size.width / 2
+        let groundY = size.height - 4
+        frameCounter += 1
+
+        // Update existing embers
+        var nextEmbers: [Ember] = []
+        for var ember in embers {
+            ember.x += ember.vx
+            ember.y += ember.vy
+            ember.life -= Double.random(in: 0.05...0.10)
+            
+            // Flicker size
+            ember.size = max(1.0, ember.size * 0.9)
+            
+            // Shift color towards red/dark as it dies
+            if ember.life < 0.4 {
+                ember.color = .red
+            } else if ember.life < 0.7 {
+                ember.color = .orange
+            }
+
+            if ember.life > 0 && ember.y > 0 {
+                nextEmbers.append(ember)
+            }
+        }
+
+        // Spawn new flames/embers at the center (Larger and richer fire)
+        let spawnCount = Int.random(in: 2...4)
+        for _ in 0..<spawnCount {
+            let colors: [Color] = [.white, .yellow, .orange]
+            let color = colors.randomElement() ?? .orange
+            
+            let newEmber = Ember(
+                x: midX + CGFloat.random(in: -6...6),
+                y: groundY,
+                vx: CGFloat.random(in: -1.2...1.2),
+                vy: CGFloat.random(in: (-2.5)...(-1.0)),
+                life: Double.random(in: 0.8...1.0),
+                size: CGFloat.random(in: 4.0...9.0),
+                color: color
+            )
+            nextEmbers.append(newEmber)
+        }
+        
+        embers = nextEmbers
+    }
+}
+
+/// 像素水族馆: neon pixel fish swim left/right and turn around at bounds, with rising bubbles.
+private struct AquariumPixels: View {
+    struct Fish: Identifiable {
+        let id = UUID()
+        var x: CGFloat
+        var y: CGFloat
+        var dx: CGFloat // direction: -1 or 1
+        var speed: CGFloat
+        var color: Color
+        var size: CGFloat
+    }
+    struct Bubble: Identifiable {
+        let id = UUID()
+        var x: CGFloat
+        var y: CGFloat
+        var vy: CGFloat
+        var size: CGFloat
+    }
+
+    @State private var fishList: [Fish] = []
+    @State private var bubbles: [Bubble] = []
+    private let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        GeometryReader { geo in
+            Canvas { context, size in
+                // Draw bubbles
+                for bubble in bubbles {
+                    let rect = CGRect(x: bubble.x, y: bubble.y, width: bubble.size, height: bubble.size)
+                    context.fill(Path(rect), with: .color(.cyan.opacity(0.4)))
+                }
+
+                // Draw fish
+                for fish in fishList {
+                    // Simple fish shape depending on direction
+                    let fishRect = CGRect(x: fish.x, y: fish.y, width: fish.size * 2, height: fish.size)
+                    context.fill(Path(fishRect), with: .color(fish.color))
+                    
+                    // Tail fin
+                    let tailX = fish.dx > 0 ? fish.x - 2 : fish.x + fish.size * 2
+                    let tailRect = CGRect(x: tailX, y: fish.y + fish.size / 4, width: 2, height: fish.size / 2)
+                    context.fill(Path(tailRect), with: .color(fish.color.opacity(0.7)))
+                }
+            }
+            .onAppear {
+                initAquarium(geo.size)
+            }
+            .onReceive(timer) { _ in
+                updateAquarium(geo.size)
+            }
+        }
+    }
+
+    private func initAquarium(_ size: CGSize) {
+        guard size.width > 0 else { return }
+        let colors: [Color] = [.orange, .cyan, .pink, .yellow]
+        fishList = (0..<3).map { i in
+            Fish(
+                x: CGFloat.random(in: 20...(size.width - 20)),
+                y: CGFloat.random(in: 4...(size.height - 10)),
+                dx: Bool.random() ? 1.0 : -1.0,
+                speed: CGFloat.random(in: 1.0...2.5),
+                color: colors[i % colors.count],
+                size: 5
+            )
+        }
+        bubbles = (0..<5).map { _ in
+            Bubble(
+                x: CGFloat.random(in: 10...(size.width - 10)),
+                y: CGFloat.random(in: 0...size.height),
+                vy: CGFloat.random(in: (-1.5)...(-0.5)),
+                size: CGFloat.random(in: 1...2)
+            )
+        }
+    }
+
+    private func updateAquarium(_ size: CGSize) {
+        guard size.width > 0 else { return }
+        if fishList.isEmpty { initAquarium(size) }
+
+        // Update fish
+        for i in 0..<fishList.count {
+            fishList[i].x += fishList[i].dx * fishList[i].speed
+            // Bound collision
+            if fishList[i].dx > 0 && fishList[i].x > size.width - 10 {
+                fishList[i].dx = -1.0
+            } else if fishList[i].dx < 0 && fishList[i].x < 10 {
+                fishList[i].dx = 1.0
+            }
+        }
+
+        // Update bubbles
+        var nextBubbles: [Bubble] = []
+        for var bubble in bubbles {
+            bubble.y += bubble.vy
+            if bubble.y > 0 {
+                nextBubbles.append(bubble)
+            } else {
+                // Respawn at bottom
+                nextBubbles.append(Bubble(
+                    x: CGFloat.random(in: 10...(size.width - 10)),
+                    y: size.height,
+                    vy: CGFloat.random(in: (-1.5)...(-0.5)),
+                    size: CGFloat.random(in: 1...2)
+                ))
+            }
+        }
+        bubbles = nextBubbles
+    }
+}
+
+/// 太空射击: horizontal retro shooter ship firing lasers at incoming obstacles.
+private struct ShmupPixels: View {
+    struct Laser: Identifiable {
+        let id = UUID()
+        var x: CGFloat
+        var y: CGFloat
+    }
+    struct Asteroid: Identifiable {
+        let id = UUID()
+        var x: CGFloat
+        var y: CGFloat
+        var speed: CGFloat
+        var size: CGFloat
+    }
+    struct Spark: Identifiable {
+        let id = UUID()
+        var x: CGFloat
+        var y: CGFloat
+        var vx: CGFloat
+        var vy: CGFloat
+        var life: Double
+        var color: Color
+    }
+
+    @State private var shipY: CGFloat = 10
+    @State private var lasers: [Laser] = []
+    @State private var asteroids: [Asteroid] = []
+    @State private var sparks: [Spark] = []
+    @State private var frameCounter = 0
+    private let timer = Timer.publish(every: 0.08, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        GeometryReader { geo in
+            Canvas { context, size in
+                // Draw ship (cyan)
+                let shipRect = CGRect(x: 10, y: shipY - 3, width: 8, height: 6)
+                context.fill(Path(shipRect), with: .color(.cyan))
+                let engineRect = CGRect(x: 6, y: shipY - 1, width: 4, height: 2)
+                context.fill(Path(engineRect), with: .color(.orange))
+
+                // Draw lasers (red rays)
+                for laser in lasers {
+                    let laserRect = CGRect(x: laser.x, y: laser.y, width: 6, height: 1.5)
+                    context.fill(Path(laserRect), with: .color(.red))
+                }
+
+                // Draw asteroids (gray)
+                for asteroid in asteroids {
+                    let path = Path(ellipseIn: CGRect(x: asteroid.x, y: asteroid.y - asteroid.size / 2, width: asteroid.size, height: asteroid.size))
+                    context.fill(path, with: .color(.gray))
+                }
+
+                // Draw sparks
+                for spark in sparks {
+                    let rect = CGRect(x: spark.x, y: spark.y, width: 1.5, height: 1.5)
+                    context.fill(Path(rect), with: .color(spark.color.opacity(spark.life)))
+                }
+            }
+            .onReceive(timer) { _ in
+                updateShmup(geo.size)
+            }
+        }
+    }
+
+    private func updateShmup(_ size: CGSize) {
+        guard size.width > 0 else { return }
+        frameCounter += 1
+
+        // Ship movement (automatic sine wave)
+        let t = Double(frameCounter) * 0.15
+        shipY = size.height / 2 + CGFloat(sin(t) * Double(size.height / 3))
+
+        // Shoot lasers periodically
+        if frameCounter % 5 == 0 {
+            lasers.append(Laser(x: 18, y: shipY - 0.75))
+        }
+
+        // Move lasers
+        lasers = lasers.map { var l = $0; l.x += 8; return l }.filter { $0.x < size.width }
+
+        // Spawn asteroids periodically
+        if frameCounter % 15 == 0 {
+            asteroids.append(Asteroid(
+                x: size.width + 10,
+                y: CGFloat.random(in: 4...(size.height - 8)),
+                speed: CGFloat.random(in: 2.0...4.0),
+                size: CGFloat.random(in: 4...8)
+            ))
+        }
+
+        // Move asteroids
+        asteroids = asteroids.map { var a = $0; a.x -= a.speed; return a }.filter { $0.x > -10 }
+
+        // Bullet-asteroid collisions
+        var nextLasers: [Laser] = []
+        var nextAsteroids = asteroids
+        
+        for laser in lasers {
+            var hit = false
+            for (idx, asteroid) in nextAsteroids.enumerated() {
+                // Check simple bounding box collision
+                let distY = abs(laser.y - asteroid.y)
+                let distX = laser.x - asteroid.x
+                if distX >= 0 && distX <= asteroid.size && distY <= asteroid.size / 2 + 2 {
+                    hit = true
+                    // Spawn explosion sparks
+                    for _ in 0..<8 {
+                        sparks.append(Spark(
+                            x: asteroid.x + asteroid.size / 2,
+                            y: asteroid.y,
+                            vx: CGFloat.random(in: -3...3),
+                            vy: CGFloat.random(in: -3...3),
+                            life: 1.0,
+                            color: Bool.random() ? .yellow : .orange
+                        ))
+                    }
+                    nextAsteroids.remove(at: idx)
+                    break
+                }
+            }
+            if !hit {
+                nextLasers.append(laser)
+            }
+        }
+        lasers = nextLasers
+        asteroids = nextAsteroids
+
+        // Update sparks
+        var nextSparks: [Spark] = []
+        for var spark in sparks {
+            spark.x += spark.vx
+            spark.y += spark.vy
+            spark.life -= 0.1
+            if spark.life > 0 {
+                nextSparks.append(spark)
+            }
+        }
+        sparks = nextSparks
+    }
+}
+
+/// 像素乒乓: classic Pong game simulating two paddles playing automatically against each other.
+private struct PongPixels: View {
+    @State private var ballX: CGFloat = 50
+    @State private var ballY: CGFloat = 10
+    @State private var ballDX: CGFloat = 3.0
+    @State private var ballDY: CGFloat = 1.5
+    
+    @State private var paddleLeftY: CGFloat = 10
+    @State private var paddleRightY: CGFloat = 10
+    
+    private let timer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
+    private let paddleHeight: CGFloat = 8
+
+    var body: some View {
+        GeometryReader { geo in
+            Canvas { context, size in
+                // Draw middle dotted line
+                let midX = size.width / 2
+                var dY: CGFloat = 0
+                while dY < size.height {
+                    let rect = CGRect(x: midX - 0.5, y: dY, width: 1, height: 2)
+                    context.fill(Path(rect), with: .color(.white.opacity(0.15)))
+                    dY += 4
+                }
+
+                // Draw Left Paddle
+                let leftRect = CGRect(x: 4, y: paddleLeftY - paddleHeight / 2, width: 2, height: paddleHeight)
+                context.fill(Path(leftRect), with: .color(.white))
+
+                // Draw Right Paddle
+                let rightRect = CGRect(x: size.width - 6, y: paddleRightY - paddleHeight / 2, width: 2, height: paddleHeight)
+                context.fill(Path(rightRect), with: .color(.white))
+
+                // Draw Ball
+                let ballRect = CGRect(x: ballX - 1, y: ballY - 1, width: 2, height: 2)
+                context.fill(Path(ballRect), with: .color(.yellow))
+            }
+            .onAppear {
+                resetBall(geo.size)
+            }
+            .onReceive(timer) { _ in
+                updatePong(geo.size)
+            }
+        }
+    }
+
+    private func resetBall(_ size: CGSize) {
+        ballX = size.width / 2
+        ballY = size.height / 2
+        ballDX = Bool.random() ? 3.0 : -3.0
+        ballDY = CGFloat.random(in: -1.5...1.5)
+        paddleLeftY = size.height / 2
+        paddleRightY = size.height / 2
+    }
+
+    private func updatePong(_ size: CGSize) {
+        guard size.width > 0 else { return }
+
+        // Move Ball
+        ballX += ballDX
+        ballY += ballDY
+
+        // Collision with top & bottom
+        if ballY <= 1 {
+            ballY = 1
+            ballDY = -ballDY
+        } else if ballY >= size.height - 1 {
+            ballY = size.height - 1
+            ballDY = -ballDY
+        }
+
+        // Left paddle tracking ball (with some delay/speed limit to look natural)
+        let targetLeft = ballY
+        let diffLeft = targetLeft - paddleLeftY
+        paddleLeftY += diffLeft * 0.22
+
+        // Right paddle tracking ball
+        let targetRight = ballY
+        let diffRight = targetRight - paddleRightY
+        paddleRightY += diffRight * 0.22
+
+        // Paddle boundaries
+        paddleLeftY = min(size.height - paddleHeight / 2, max(paddleHeight / 2, paddleLeftY))
+        paddleRightY = min(size.height - paddleHeight / 2, max(paddleHeight / 2, paddleRightY))
+
+        // Collision with Left Paddle
+        if ballDX < 0 && ballX <= 6 && ballX >= 4 {
+            if ballY >= paddleLeftY - paddleHeight / 2 - 1 && ballY <= paddleLeftY + paddleHeight / 2 + 1 {
+                ballX = 6
+                ballDX = -ballDX
+                // Add vertical variation based on where it hit
+                ballDY += (ballY - paddleLeftY) * 0.3
+            }
+        }
+
+        // Collision with Right Paddle
+        if ballDX > 0 && ballX >= size.width - 8 && ballX <= size.width - 6 {
+            if ballY >= paddleRightY - paddleHeight / 2 - 1 && ballY <= paddleRightY + paddleHeight / 2 + 1 {
+                ballX = size.width - 8
+                ballDX = -ballDX
+                ballDY += (ballY - paddleRightY) * 0.3
+            }
+        }
+
+        // Out of bounds reset
+        if ballX < 0 || ballX > size.width {
+            resetBall(size)
+        }
+    }
+}
+
+/// 彩虹猫: classic animated Nyan Cat with a waving rainbow trail.
+private struct NyanCatPixels: View {
+    private let colors: [Color] = [.red, .orange, .yellow, .green, .blue, .purple]
+    private let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
+    @State private var tOffset: Double = 0.0
+
+    var body: some View {
+        GeometryReader { geo in
+            Canvas { context, size in
+                let midY = size.height / 2
+                let catX = size.width / 2 - 10
+                
+                // Draw waving rainbow trail
+                let waveAmplitude: CGFloat = 2.0
+                let waveFrequency: CGFloat = 0.15
+                
+                for col in stride(from: 0.0, to: catX + 2, by: 3.0) {
+                    let phase = col * waveFrequency - tOffset * 4
+                    let waveY = midY + sin(phase) * waveAmplitude
+                    
+                    // Draw vertical colored stripe stack
+                    for (index, color) in colors.enumerated() {
+                        let stripeHeight: CGFloat = 2
+                        let rY = waveY - 6 + CGFloat(index) * stripeHeight
+                        let rect = CGRect(x: col, y: rY, width: 3, height: stripeHeight)
+                        context.fill(Path(rect), with: .color(color))
+                    }
+                }
+
+                // Draw Nyan Cat (10x8 pixels boxy representation)
+                let bobY = midY - 4 + sin(tOffset * 8) * 0.8
+                
+                // Feet (moving toggle)
+                let legToggle = Int(tOffset * 8) % 2 == 0
+                
+                // Pop-Tart Body (Pink filling, beige crust)
+                let bodyRect = CGRect(x: catX, y: bobY + 1, width: 14, height: 8)
+                context.fill(Path(bodyRect), with: .color(Color(red: 0.9, green: 0.7, blue: 0.5))) // Crust
+                let fillingRect = CGRect(x: catX + 2, y: bobY + 2, width: 10, height: 6)
+                context.fill(Path(fillingRect), with: .color(.pink)) // Filling
+                
+                // Sprinkles
+                context.fill(Path(CGRect(x: catX + 4, y: bobY + 3, width: 1, height: 1)), with: .color(.red))
+                context.fill(Path(CGRect(x: catX + 8, y: bobY + 4, width: 1, height: 1)), with: .color(.red))
+                context.fill(Path(CGRect(x: catX + 6, y: bobY + 6, width: 1, height: 1)), with: .color(.red))
+
+                // Head (Grey)
+                let headRect = CGRect(x: catX + 11, y: bobY + 2, width: 6, height: 5)
+                context.fill(Path(headRect), with: .color(.gray))
+                // Ears
+                context.fill(Path(CGRect(x: catX + 12, y: bobY, width: 1.5, height: 2)), with: .color(.gray))
+                context.fill(Path(CGRect(x: catX + 15, y: bobY, width: 1.5, height: 2)), with: .color(.gray))
+                // Eyes (Black)
+                context.fill(Path(CGRect(x: catX + 13, y: bobY + 3, width: 1, height: 1)), with: .color(.black))
+                context.fill(Path(CGRect(x: catX + 15, y: bobY + 3, width: 1, height: 1)), with: .color(.black))
+                // Cheeks (Rose pink)
+                context.fill(Path(CGRect(x: catX + 12, y: bobY + 5, width: 1, height: 1)), with: .color(.pink))
+                context.fill(Path(CGRect(x: catX + 16, y: bobY + 5, width: 1, height: 1)), with: .color(.pink))
+
+                // Tail (Grey, waving)
+                let tailY = bobY + 4 + (legToggle ? 1 : -1)
+                context.fill(Path(CGRect(x: catX - 4, y: tailY, width: 4, height: 2)), with: .color(.gray))
+
+                // Legs
+                if legToggle {
+                    context.fill(Path(CGRect(x: catX + 2, y: bobY + 9, width: 2, height: 1.5)), with: .color(.gray))
+                    context.fill(Path(CGRect(x: catX + 10, y: bobY + 9, width: 2, height: 1.5)), with: .color(.gray))
+                } else {
+                    context.fill(Path(CGRect(x: catX + 4, y: bobY + 9, width: 2, height: 1.5)), with: .color(.gray))
+                    context.fill(Path(CGRect(x: catX + 12, y: bobY + 9, width: 2, height: 1.5)), with: .color(.gray))
+                }
+            }
+            .onReceive(timer) { _ in
+                tOffset += 0.05
+            }
+        }
+    }
+}
+
+/// 恐龙奔跑: automatic mini chrome dinosaur jumping over cactus obstacles.
+private struct DinoRunPixels: View {
+    // Classic 9x10 T-Rex sprite frames
+    private static let dinoFrame1: [String] = [
+        "....#####.",
+        "....#.#.##",
+        "....######",
+        "....####..",
+        "##..#####.",
+        "#######...",
+        ".#####....",
+        "..##.##...",
+        "..#...#..."
+    ]
+    private static let dinoFrame2: [String] = [
+        "....#####.",
+        "....#.#.##",
+        "....######",
+        "....####..",
+        "##..#####.",
+        "#######...",
+        ".#####....",
+        "...##.....",
+        "....#....."
+    ]
+
+    @State private var dinoY: CGFloat = 0.0
+    @State private var dinoVY: CGFloat = 0.0
+    @State private var isJumping = false
+    @State private var runFrame = false
+    
+    // Cacti x positions
+    @State private var cactiX: [CGFloat] = []
+    @State private var score = 0
+    @State private var speed: CGFloat = 2.5
+    
+    private let timer = Timer.publish(every: 0.06, on: .main, in: .common).autoconnect()
+    private let groundOffsetY: CGFloat = 4.0
+
+    var body: some View {
+        GeometryReader { geo in
+            Canvas { context, size in
+                let groundY = size.height - groundOffsetY
+                
+                // Draw ground line
+                context.stroke(Path { p in
+                    p.move(to: CGPoint(x: 0, y: groundY))
+                    p.addLine(to: CGPoint(x: size.width, y: groundY))
+                }, with: .color(.white.opacity(0.3)), lineWidth: 1)
+
+                // Draw T-Rex Dino Sprite pixel-by-pixel (10x9 pixels)
+                let dY = groundY - 9 + dinoY
+                let dX: CGFloat = 20
+                let spriteRows = runFrame ? Self.dinoFrame1 : Self.dinoFrame2
+                
+                for (rowIdx, line) in spriteRows.enumerated() {
+                    for (colIdx, ch) in line.enumerated() where ch == "#" {
+                        let pixelRect = CGRect(x: dX + CGFloat(colIdx), y: dY + CGFloat(rowIdx), width: 1, height: 1)
+                        context.fill(Path(pixelRect), with: .color(.white))
+                    }
+                }
+
+                // Draw Cacti (greenish vertical blocks)
+                for cx in cactiX {
+                    let path = Path { p in
+                        p.addRect(CGRect(x: cx, y: groundY - 8, width: 3, height: 8)) // center trunk
+                        p.addRect(CGRect(x: cx - 2, y: groundY - 6, width: 2, height: 3)) // left branch
+                        p.addRect(CGRect(x: cx + 3, y: groundY - 7, width: 2, height: 4)) // right branch
+                    }
+                    context.fill(path, with: .color(.mint))
+                }
+            }
+            .onAppear {
+                resetGame(geo.size)
+            }
+            .onReceive(timer) { _ in
+                updateGame(geo.size)
+            }
+        }
+    }
+
+    private func resetGame(_ size: CGSize) {
+        dinoY = 0
+        dinoVY = 0
+        isJumping = false
+        // Prevent cacti from spawning on top of the dino at startup (when size.width might be 0)
+        let spawnWidth = size.width > 50 ? size.width : 300
+        cactiX = [spawnWidth + 50, spawnWidth + 180]
+        speed = 2.5
+        score = 0
+    }
+
+    private func updateGame(_ size: CGSize) {
+        guard size.width > 0 else { return }
+        runFrame.toggle()
+
+        // Move Cacti
+        cactiX = cactiX.map { $0 - speed }
+        
+        // Spawn/recycling cacti
+        cactiX = cactiX.filter { x in
+            if x < -10 {
+                score += 1
+                if score % 5 == 0 {
+                    speed = min(5.0, speed + 0.3)
+                }
+                return false
+            }
+            return true
+        }
+        
+        if cactiX.isEmpty || (cactiX.last ?? 0) < size.width - CGFloat.random(in: 80...150) {
+            cactiX.append(size.width + 10)
+        }
+
+        // Physics-based Automatic Jump trigger
+        // Find nearest cactus in front of dino (collision point is roughly x=28)
+        if let nextCactus = cactiX.first(where: { $0 > 24 }) {
+            let ticksToCollision = (nextCactus - 26) / speed
+            if ticksToCollision >= 0 && ticksToCollision < 6.0 && !isJumping {
+                // Jump!
+                dinoVY = -5.0
+                isJumping = true
+            }
+        }
+
+        // Apply physics
+        if isJumping {
+            dinoY += dinoVY
+            dinoVY += 0.75 // Gravity
+            if dinoY >= 0 {
+                dinoY = 0
+                dinoVY = 0
+                isJumping = false
+            }
+        }
+
+        // Collide if overlapping bounds
+        for cx in cactiX {
+            if cx >= 15 && cx <= 30 {
+                if dinoY > -8.0 {
+                    resetGame(size)
+                    break
+                }
+            }
+        }
+    }
+}
+
+/// 电子木鱼: an automatic pixel-art wooden fish being knocked periodically, displaying floating "功德+1".
+private struct WoodenFishPixels: View {
+    private static let woodenFishSprite: [String] = [
+        "....#######....",
+        "..###########..",
+        ".#############.",
+        "#############..",
+        "####..#########",  // resonance slit
+        "###....########",  // resonance slit
+        ".#############.",
+        "..###########..",
+        "....#######...."
+    ]
+
+    struct FloatingText: Identifiable {
+        let id = UUID()
+        var yOffset: CGFloat
+        var opacity: Double
+    }
+
+    @State private var floatingTexts: [FloatingText] = []
+    @State private var frameCounter = 0
+    private let timer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        GeometryReader { geo in
+            Canvas { context, size in
+                let midX = size.width / 2
+                let midY = size.height / 2
+                let t = frameCounter % 24  // 24 * 0.05s = 1.2s cycle
+
+                // 1. Calculate animation states
+                let fishScale: CGFloat = (t >= 3 && t <= 5) ? 1.12 : 1.0
+                
+                // Mallet angle (swinging from -0.3 rad to 0.2 rad upon hit)
+                let angle: Double
+                if t < 3 {
+                    angle = -0.3 + 0.5 * Double(t) / 3.0
+                } else if t >= 3 && t < 8 {
+                    angle = 0.2 - 0.5 * Double(t - 3) / 5.0
+                } else {
+                    angle = -0.3
+                }
+
+                // 2. Draw Wooden Fish
+                context.drawLayer { ctx in
+                    ctx.translateBy(x: midX - 8, y: midY)
+                    ctx.scaleBy(x: fishScale, y: fishScale)
+                    ctx.translateBy(x: -(midX - 8), y: -midY)
+                    
+                    let fx0 = midX - 15
+                    let fy0 = midY - 4.5
+                    
+                    for (rowIdx, line) in Self.woodenFishSprite.enumerated() {
+                        for (colIdx, ch) in line.enumerated() where ch == "#" {
+                            let rect = CGRect(
+                                x: fx0 + CGFloat(colIdx),
+                                y: fy0 + CGFloat(rowIdx),
+                                width: 1,
+                                height: 1
+                            )
+                            ctx.fill(Path(rect), with: .color(Color(red: 0.65, green: 0.5, blue: 0.4)))
+                        }
+                    }
+                }
+
+                // 3. Draw Mallet (stick + head)
+                context.drawLayer { ctx in
+                    let pivot = CGPoint(x: midX + 8, y: midY - 6)
+                    ctx.translateBy(x: pivot.x, y: pivot.y)
+                    ctx.rotate(by: Angle(radians: angle))
+                    ctx.translateBy(x: -pivot.x, y: -pivot.y)
+
+                    // Draw Stick (diagonal line)
+                    let stickPath = Path { p in
+                        p.move(to: pivot)
+                        p.addLine(to: CGPoint(x: pivot.x - 10, y: pivot.y + 4))
+                    }
+                    ctx.stroke(stickPath, with: .color(.gray), lineWidth: 1.5)
+
+                    // Draw Head of mallet
+                    let headRect = CGRect(x: pivot.x - 12, y: pivot.y + 2.5, width: 3, height: 3)
+                    ctx.fill(Path(headRect), with: .color(.white))
+                }
+
+                // 4. Draw Floating Merit Texts
+                for textItem in floatingTexts {
+                    let text = Text("功德+1")
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .foregroundColor(.yellow.opacity(textItem.opacity))
+                    
+                    context.draw(
+                        text,
+                        at: CGPoint(x: midX - 8, y: midY - 8 - textItem.yOffset),
+                        anchor: .center
+                    )
+                }
+            }
+            .onReceive(timer) { _ in
+                updateWoodenFish()
+            }
+        }
+    }
+
+    private func updateWoodenFish() {
+        frameCounter += 1
+        let t = frameCounter % 24
+
+        // Add merit text on hit
+        if t == 3 {
+            floatingTexts.append(FloatingText(yOffset: 0, opacity: 1.0))
+        }
+
+        // Update floating texts
+        var nextTexts: [FloatingText] = []
+        for var textItem in floatingTexts {
+            textItem.yOffset += 0.8
+            textItem.opacity -= 0.05
+            if textItem.opacity > 0 {
+                nextTexts.append(textItem)
+            }
+        }
+        floatingTexts = nextTexts
     }
 }
 

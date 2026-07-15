@@ -123,7 +123,7 @@ def _merge_snapshot_row(row):
         low52w=_f(row, "lowest52weeks_price"),
         marketCap=_f(row, "total_market_val"),
         pe=_f(row, "pe_ttm_ratio") or _f(row, "pe_ratio"),
-        time=str(row.get("update_time") or ""),
+        time=str(row["update_time"]) if row.get("update_time") else None,
     )
     # Force-set (incl. None) so yesterday's ext prices don't linger into today.
     QUOTES[code].update({k: _f(row, src) for k, src in EXT_RAW.items()})
@@ -297,7 +297,7 @@ def _QuoteHandler():
                             lastClose=_f(row, "prev_close_price"),
                             volume=_f(row, "volume"),
                             turnover=_f(row, "turnover"),
-                            time=f"{row.get('data_date', '')} {row.get('data_time', '')}".strip(),
+                            time=(f"{row.get('data_date', '')} {row.get('data_time', '')}".strip() or None),
                             **{k: _f(row, src) for k, src in EXT_RAW.items()},
                         )
                         _append_ext_rt(row["code"], row)
@@ -371,15 +371,47 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"ok": ok, "error": LAST_ERROR})
 
 
+# ponytail: only exchanges we watch; default covers HK/US regular session
+SESSION_HOURS = {"SH": ("09:30", "15:00"), "SZ": ("09:30", "15:00")}
+
+
+def _rt_is_stale(code, q):
+    """True when the market is in-session (per exchange-local update_time) but
+    the cached timeshare is from another day, empty, or >15 min behind. Happens
+    when OpenD drops the connection and the SDK's auto-resubscribe fails
+    (e.g. transient 拉取美股夜盘状态失败): pulls keep working, pushes are gone,
+    and the chart silently freezes on the last primed session."""
+    t = str(q.get("time") or "")
+    if len(t) < 16:
+        return False
+    date, hhmm = t[:10], t[11:16]
+    start, end = SESSION_HOURS.get(code.split(".", 1)[0], ("09:30", "16:00"))
+    if not (start <= hhmm <= end):
+        return False
+    entry = RT.get(code)
+    if not entry or not entry["points"] or entry["date"] != date:
+        return True
+    last = entry["points"][-1]["t"]
+    gap = (int(hhmm[:2]) - int(last[:2])) * 60 + int(hhmm[3:]) - int(last[3:])
+    return gap > 15
+
+
 def _snapshot_loop():
     """Refresh snapshots every 60s: keeps ext-session prices, volume and 52w
-    fresh even when OpenD sends no pushes (one batched call, quota 10/30s)."""
+    fresh even when OpenD sends no pushes (one batched call, quota 10/30s).
+    Also self-heals stale timeshares by re-watching (resubscribe + re-prime)."""
     while True:
         _time.sleep(60)
         with LOCK:
             codes = sorted(WATCHED)
-        if codes:
-            _fetch_snapshot(codes)
+        if not codes:
+            continue
+        _fetch_snapshot(codes)
+        with LOCK:
+            stale = [c for c in codes if _rt_is_stale(c, QUOTES.get(c) or {})]
+            WATCHED.difference_update(stale)
+        if stale:
+            _watch(stale)
 
 
 def main():

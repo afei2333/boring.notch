@@ -54,6 +54,9 @@ struct SettingsView: View {
                 NavigationLink(value: "Shortcuts") {
                     Label("Shortcuts", systemImage: "keyboard")
                 }
+                NavigationLink(value: "Animation") {
+                    Label("Animation", systemImage: "wand.and.stars")
+                }
                 NavigationLink(value: "Stocks") {
                     Label("Stocks", systemImage: "chart.line.uptrend.xyaxis")
                 }
@@ -90,6 +93,8 @@ struct SettingsView: View {
                     Shelf()
                 case "Shortcuts":
                     Shortcuts()
+                case "Animation":
+                    AnimationSettings()
                 case "Stocks":
                     StockSettings()
                 case "Extensions":
@@ -1170,7 +1175,6 @@ struct Appearance: View {
     @Default(.customVisualizers) var customVisualizers
     @Default(.selectedVisualizer) var selectedVisualizer
     @Default(.notchTheme) var notchTheme
-    @Default(.idlePixelAnimationStyle) var idlePixelAnimationStyle
 
     let icons: [String] = ["logo2"]
     @State private var selectedIcon: String = "logo2"
@@ -1397,11 +1401,6 @@ struct Appearance: View {
                 Defaults.Toggle(key: .showNotHumanFace) {
                     Text("Show cool face animation while inactive")
                 }
-                Picker("外接屏空闲像素动画", selection: $idlePixelAnimationStyle) {
-                    ForEach(PixelAnimationStyle.allCases) { style in
-                        Text(style.rawValue).tag(style)
-                    }
-                }
             } header: {
                 HStack {
                     Text("Additional features")
@@ -1418,6 +1417,46 @@ struct Appearance: View {
         }
 
         return false
+    }
+}
+
+struct AnimationSettings: View {
+    @Default(.enableIdlePixelAnimation) var enableIdlePixelAnimation
+    @Default(.idlePixelAnimationStyle) var idlePixelAnimationStyle
+
+    var body: some View {
+        Form {
+            Section {
+                Defaults.Toggle(key: .enableIdlePixelAnimation) {
+                    Text("Show idle animation on camera-less displays")
+                }
+                Picker("动画样式", selection: $idlePixelAnimationStyle) {
+                    ForEach(PixelAnimationStyle.allCases) { style in
+                        Text(style.rawValue).tag(style)
+                    }
+                }
+                .disabled(!enableIdlePixelAnimation)
+            } header: {
+                Text("Idle animation")
+            } footer: {
+                Text("Shown in the closed notch bar on external displays without a camera, while nothing is playing.")
+                    .multilineTextAlignment(.trailing)
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+            }
+
+            Section {
+                PixelIdleAnimation()
+                    .frame(height: 32)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.black, in: RoundedRectangle(cornerRadius: 10))
+                    .opacity(enableIdlePixelAnimation ? 1 : 0.3)
+            } header: {
+                Text("Preview")
+            }
+        }
+        .accentColor(.effectiveAccent)
+        .navigationTitle("Animation")
     }
 }
 

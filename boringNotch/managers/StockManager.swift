@@ -57,6 +57,18 @@ struct StockQuote: Codable, Identifiable, Equatable {
     }
 
     var displayName: String { name ?? symbol }
+
+    /// Trading-session segments as minute-of-day ranges (lunch break excluded),
+    /// matching whichever session `rt` currently carries. Lets the sparkline
+    /// fill proportionally to session progress instead of stretching full-width.
+    var sessionSegments: [(start: Int, end: Int)] {
+        if let ext { return ext.label == "盘前" ? [(240, 570)] : [(960, 1200)] }
+        return switch StockMarket.of(symbol) {
+        case .hk: [(570, 720), (780, 960)]
+        case .cn: [(570, 690), (780, 900)]
+        default:  [(570, 960)]
+        }
+    }
 }
 
 enum StockMarket: String, CaseIterable, Identifiable {
@@ -136,10 +148,11 @@ final class StockManager: ObservableObject {
     private var port: Int?
     private var startTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
-    // Armed edge triggers: a key fires once when its value crosses the
-    // threshold, then re-arms after the value falls back under 80% of it,
-    // so alerts can repeat without ringing every 3s poll at the boundary.
-    private var firedKeys: Set<String> = []
+    // Ladder triggers: per key, each threshold multiple fires at most once per
+    // trading day — crossing 1x alerts, then only 2x, 3x… alert again. A value
+    // oscillating around an already-fired rung never re-alerts (no 跌1%→回升→
+    // 再跌1% spam); the next alert needs one more full threshold step.
+    private var firedLevels: [String: (day: String, level: Int)] = [:]
 
     private static let pidDefaultsKey = "stockBridgePID"
     private static let helperServiceName = "theboringteam.boringnotch.BoringNotchXPCHelper"
@@ -374,43 +387,50 @@ final class StockManager: ObservableObject {
         for watched in watchlist where watched.alertsEnabled {
             guard let quote = quotes[watched.symbol], let cur = quote.cur else { continue }
             let name = quote.displayName
+            // Exchange-local trading day; resets the ladder across sessions
+            // (local midnight would reset mid-session for US stocks).
+            let day = String((quote.time ?? "").prefix(10))
 
             if let threshold = changeThreshold, let pct = quote.changePct {
                 edge(key: "chg|\(watched.symbol)", value: abs(pct), threshold: threshold,
-                     symbol: watched.symbol,
+                     day: day, symbol: watched.symbol,
                      message: "\(name) \(pct >= 0 ? "涨" : "跌")幅 \(Self.pct(pct))")
             }
 
             if let threshold = changeThreshold, let ext = quote.ext, let pct = ext.changePct {
-                edge(key: "extchg|\(watched.symbol)", value: abs(pct), threshold: threshold,
-                     symbol: watched.symbol,
+                edge(key: "extchg|\(watched.symbol)|\(ext.label)", value: abs(pct), threshold: threshold,
+                     day: day, symbol: watched.symbol,
                      message: "\(name) \(ext.label)\(pct >= 0 ? "涨" : "跌")幅 \(Self.pct(pct))")
             }
 
             if let threshold = reversalThreshold, let lastClose = quote.lastClose {
                 if let high = quote.high, high > lastClose, high > 0 {
                     edge(key: "revDown|\(watched.symbol)", value: (high - cur) / high * 100,
-                         threshold: threshold, symbol: watched.symbol,
+                         threshold: threshold, day: day, symbol: watched.symbol,
                          message: "\(name) 冲高回落，距高点 -\(Self.pct((high - cur) / high * 100, signed: false))")
                 }
                 if let low = quote.low, low < lastClose, low > 0 {
                     edge(key: "revUp|\(watched.symbol)", value: (cur - low) / low * 100,
-                         threshold: threshold, symbol: watched.symbol,
+                         threshold: threshold, day: day, symbol: watched.symbol,
                          message: "\(name) 探底回升，距低点 +\(Self.pct((cur - low) / low * 100, signed: false))")
                 }
             }
         }
     }
 
-    private func edge(key: String, value: Double, threshold: Double,
+    private func edge(key: String, value: Double, threshold: Double, day: String,
                       symbol: String, message: @autoclosure () -> String) {
-        if value >= threshold {
-            guard !firedKeys.contains(key) else { return }
-            firedKeys.insert(key)
-            fire(symbol: symbol, message: message())
-        } else if value < threshold * 0.8 {
-            firedKeys.remove(key)
-        }
+        guard threshold > 0 else { return }
+        let level = Int(value / threshold)
+        // Monotonic day: only a strictly LATER day resets the ladder. quote.time
+        // can flip between sources (60s snapshot vs push, or be briefly empty on
+        // a partial push) — an equal/older/empty day must never reset, or the
+        // same alert refires on every poll while the sources alternate.
+        let stored = firedLevels[key]
+        let prev = stored.map { day > $0.day ? 0 : $0.level } ?? 0
+        guard level > prev else { return }
+        firedLevels[key] = (max(day, stored?.day ?? ""), level)
+        fire(symbol: symbol, message: message())
     }
 
     private func fire(symbol: String, message: String) {

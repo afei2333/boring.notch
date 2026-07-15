@@ -202,6 +202,8 @@ extension Defaults.Keys {
     // MARK: Idle animation
     /// Pixel animation shown in the closed bar on camera-less displays.
     static let idlePixelAnimationStyle = Key<PixelAnimationStyle>("idlePixelAnimationStyle", default: .invader)
+    /// Master on/off switch for the idle pixel animation.
+    static let enableIdlePixelAnimation = Key<Bool>("enableIdlePixelAnimation", default: true)
 
     // MARK: Battery
     static let showPowerStatusNotifications = Key<Bool>("showPowerStatusNotifications", default: true)

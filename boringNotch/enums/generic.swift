@@ -80,6 +80,15 @@ enum PixelAnimationStyle: String, CaseIterable, Identifiable, Defaults.Serializa
     case matrixRain = "数字雨"
     case gameOfLife = "生命游戏"
     case twinkle = "星光闪烁"
+    case pixelPet = "像素萌宠"
+    case snake = "贪吃蛇"
+    case campfire = "温馨篝火"
+    case aquarium = "像素水族馆"
+    case shmup = "太空射击"
+    case pong = "像素乒乓"
+    case nyanCat = "彩虹猫"
+    case dinoRun = "恐龙奔跑"
+    case woodenFish = "电子木鱼"
 
     var id: String { rawValue }
 }

@@ -15,49 +15,71 @@ struct InlineHUD: View {
     @Binding var icon: String
     @Binding var hoverAnimation: Bool
     @Binding var gestureProgress: CGFloat
+    /// Message-style HUDs (stock alert, screenshot): centered text sits *behind*
+    /// the physical camera housing on the built-in display, so there split the
+    /// content to the right of the notch cutout; camera-less externals draw a
+    /// black pill, so centered text is fine.
+    @ViewBuilder
+    private func hudMessage<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        if vm.screenHasCamera {
+            HStack(spacing: 0) {
+                Color.clear.frame(width: 205)
+                Rectangle().fill(.black).frame(width: vm.closedNotchSize.width + 10)
+                content()
+                    .padding(.horizontal, 8)
+                    .frame(width: 205, alignment: .leading)
+            }
+            .frame(maxHeight: .infinity)
+        } else {
+            content()
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
+    }
+
     var body: some View {
         HStack {
             if type == .stockAlert {
                 // Stock alert: explicit style shows the message text, implicit only
                 // the bell; `value` carries the accumulated unread alert count.
-                HStack(spacing: 8) {
-                    Image(systemName: "chart.line.uptrend.xyaxis")
-                        .foregroundStyle(.primary)
-                        .imageScale(.medium)
-                    if !BoringViewCoordinator.shared.sneakPeek.message.isEmpty {
+                hudMessage {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chart.line.uptrend.xyaxis")
+                            .foregroundStyle(.primary)
+                            .imageScale(.medium)
+                        if !BoringViewCoordinator.shared.sneakPeek.message.isEmpty {
+                            Text(BoringViewCoordinator.shared.sneakPeek.message)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                        } else {
+                            Text("股价提醒")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.primary)
+                        }
+                        if value > 1 {
+                            Text("\(Int(value))")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(.red))
+                        }
+                    }
+                }
+            } else if type == .screenshot {
+                hudMessage {
+                    HStack(spacing: 8) {
+                        Image(systemName: "camera.viewfinder")
+                            .foregroundStyle(.primary)
+                            .symbolVariant(.fill)
+                            .imageScale(.medium)
                         Text(BoringViewCoordinator.shared.sneakPeek.message)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
-                    } else {
-                        Text("股价提醒")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.primary)
-                    }
-                    if value > 1 {
-                        Text("\(Int(value))")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(.red))
                     }
                 }
-                .padding(.horizontal, 16)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            } else if type == .screenshot {
-                HStack(spacing: 8) {
-                    Image(systemName: "camera.viewfinder")
-                        .foregroundStyle(.primary)
-                        .symbolVariant(.fill)
-                        .imageScale(.medium)
-                    Text(BoringViewCoordinator.shared.sneakPeek.message)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 16)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             } else {
                 HStack(spacing: 5) {
                     Group {
