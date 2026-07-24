@@ -122,7 +122,9 @@ final class SystemStatsManager: ObservableObject {
     @Published private(set) var ramTotal = Double(ProcessInfo.processInfo.physicalMemory)
     @Published private(set) var downSpeed: Double = 0         // bytes/s
     @Published private(set) var upSpeed: Double = 0           // bytes/s
-    @Published private(set) var powerWatts: Double?           // nil = unavailable
+    @Published private(set) var powerWatts: Double?           // system draw, nil = unavailable
+    @Published private(set) var adapterWatts: Double?         // AC input, nil = unplugged/unavailable
+    @Published private(set) var batteryWatts: Double?         // signed: + charging, - draining
     @Published private(set) var gpuUsage: Double?             // 0...1, nil = unavailable
     @Published private(set) var cpuTemp: Double?              // °C
     @Published private(set) var gpuTemp: Double?              // °C
@@ -258,13 +260,12 @@ final class SystemStatsManager: ObservableObject {
     }
 
     private func samplePower() {
-        // Total system power (Apple Silicon). Fallback: battery drain/charge rate.
-        if let watts = SMC.shared.readFloat("PSTR"), watts > 0 {
-            powerWatts = Double(watts)
-            return
-        }
+        // PSTR = total system draw, PDTR = AC/DC-In power (Apple Silicon SMC keys)
+        powerWatts = SMC.shared.readFloat("PSTR").flatMap { $0 > 0 ? Double($0) : nil }
+        adapterWatts = SMC.shared.readFloat("PDTR").flatMap { $0 > 0.5 ? Double($0) : nil }
+
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
-        guard service != 0 else { powerWatts = nil; return }
+        guard service != 0 else { batteryWatts = nil; return }
         defer { IOObjectRelease(service) }
         func prop(_ key: String) -> Int? {
             IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?
@@ -273,9 +274,12 @@ final class SystemStatsManager: ObservableObject {
         if let mA = prop("Amperage"), let mV = prop("Voltage") {
             // Amperage is signed (negative = draining); Int wraps it unsigned on some systems
             let amps = Double(Int64(truncatingIfNeeded: Int64(mA))) / 1000
-            powerWatts = abs(amps) * (Double(mV) / 1000)
+            batteryWatts = amps * (Double(mV) / 1000)
         } else {
-            powerWatts = nil
+            batteryWatts = nil
+        }
+        if powerWatts == nil, let batteryWatts {
+            powerWatts = abs(batteryWatts) // no PSTR (Intel): battery rate is best estimate
         }
     }
 }
@@ -333,7 +337,7 @@ struct SystemStatsView: View {
                     icon: "bolt.fill",
                     title: "Power",
                     value: manager.powerWatts.map { String(format: "%.1f W", $0) } ?? "--",
-                    detail: nil,
+                    detail: powerDetail,
                     fraction: nil
                 )
             }
@@ -343,6 +347,20 @@ struct SystemStatsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { manager.start() }
         .onDisappear { manager.stop() }
+    }
+
+    // e.g. "电源 45W · 充电 15W" / "电池 -12W"; nil when nothing to show
+    private var powerDetail: String? {
+        var parts: [String] = []
+        if let ac = manager.adapterWatts {
+            parts.append(String(format: "电源 %.0fW", ac))
+        }
+        if let batt = manager.batteryWatts, abs(batt) >= 0.5 {
+            parts.append(batt > 0
+                ? String(format: "充电 %.0fW", batt)
+                : String(format: "电池 -%.0fW", -batt))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private func speedString(_ bytesPerSec: Double) -> String {

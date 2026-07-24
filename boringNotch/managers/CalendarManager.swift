@@ -17,6 +17,7 @@ class CalendarManager: ObservableObject {
 
     @Published var currentWeekStartDate: Date
     @Published var events: [EventModel] = []
+    @Published var eventDays: Set<Date> = []  // startOfDay of every date with an event, for the strip
     @Published var allCalendars: [CalendarModel] = []
     @Published var eventCalendars: [CalendarModel] = []
     @Published var reminderLists: [CalendarModel] = []
@@ -69,6 +70,19 @@ class CalendarManager: ObservableObject {
         self.reminderLists = all.filter { $0.isReminder }
         self.allCalendars = all // for legacy compatibility, can be removed if not needed
         updateSelectedCalendars()
+        await reloadEventDays()
+    }
+
+    /// Which days in the strip's ±200-day window have events. Refreshed with
+    /// the calendar list (init, EKEventStoreChanged, selection change).
+    private func reloadEventDays() async {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        guard let start = cal.date(byAdding: .day, value: -200, to: today),
+              let end = cal.date(byAdding: .day, value: 201, to: today) else { return }
+        let all = await calendarService.events(
+            from: start, to: end, calendars: selectedCalendars.map { $0.id })
+        eventDays = Set(all.map { cal.startOfDay(for: $0.start) })
     }
 
     func checkCalendarAuthorization() async {
@@ -180,6 +194,7 @@ class CalendarManager: ObservableObject {
         Defaults[.calendarSelectionState] = selectionState
         updateSelectedCalendars()
         await updateEvents()
+        await reloadEventDays()
     }
 
     static func startOfDay(_ date: Date) -> Date {

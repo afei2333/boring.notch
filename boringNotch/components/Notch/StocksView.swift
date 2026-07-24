@@ -44,7 +44,7 @@ struct StocksView: View {
     }
 
     @ObservedObject private var manager = StockManager.shared
-    @State private var market: StockMarket = .all
+    @State private var market: StockMarket = .current
     @State private var sortMode: SortMode = .watchlist
     @State private var detailSymbol: String?
     @State private var showHistory = false
@@ -147,15 +147,6 @@ struct StocksView: View {
             }
             .buttonStyle(.plain)
             .help("切换排序：自选顺序 / 涨幅降序 / 涨幅升序")
-            Button {
-                SettingsWindowController.shared.showWindow()
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.gray)
-            }
-            .buttonStyle(.plain)
-            .help("在设置中管理自选和提醒")
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
@@ -166,7 +157,10 @@ struct StocksView: View {
         case .failed(let error): error
         default: manager.bridgeError
         }
-        guard let message else { return Optional<AnyView>.none }
+        guard var message else { return Optional<AnyView>.none }
+        if message.contains("cannot connect OpenD") {
+            message = "需要启动 FutuOpenD 才能获取数据"
+        }
         return AnyView(
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")

@@ -961,6 +961,7 @@ struct PixelIdleAnimation: View {
         case .nyanCat: NyanCatPixels()
         case .dinoRun: DinoRunPixels()
         case .woodenFish: WoodenFishPixels()
+        case .crab: CrabPixels()
         }
     }
 }
@@ -1029,6 +1030,82 @@ private struct InvaderPatrolPixels: View {
                                           y: y0 + CGFloat(row) * px,
                                           width: px, height: px)
                         context.fill(Path(rect), with: .color(.mint.opacity(0.85)))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Clawd 吉祥物: Claude Code's crab mascot strolling along the bar, waving
+/// its raised left claw and shuffling its stubby legs. Stateless — everything
+/// derives from the clock.
+private struct CrabPixels: View {
+    // Two-frame Clawd sprite, 11×8: flat rectangular body, two dark eyes
+    // ('o' left unfilled so the bar shows through), raised waving left claw,
+    // small right arm, stubby legs.
+    private static let frames: [[String]] = [
+        [   // claw up
+            "##.........",
+            "##.........",
+            ".#########.",
+            "...#o##o##.",
+            "...########",
+            "...#######.",
+            "....#.#.#..",
+            "...#..#..#.",
+        ],
+        [   // claw down
+            "...........",
+            "##.........",
+            "##########.",
+            "...#o##o##.",
+            "...#######.",
+            "...########",
+            "...#.#.#...",
+            "....#..#..#",
+        ],
+    ]
+
+    private static let shell = Color(red: 0.85, green: 0.47, blue: 0.34)  // Claude orange
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.12)) { timeline in
+            Canvas { context, size in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+
+                // Faint twinkling dust so the bar isn't empty around Clawd.
+                let cell: CGFloat = 8
+                for col in 0..<max(1, Int(size.width / cell)) {
+                    for row in 0..<max(1, Int(size.height / cell)) {
+                        let seed = UInt32(truncatingIfNeeded: (col &* 73856093) ^ (row &* 19349663))
+                        let h = Double(seed % 1000) / 1000
+                        guard h > 0.85 else { continue }
+                        let brightness = max(0, sin(t * (0.5 + h) + h * .pi * 2))
+                        guard brightness > 0.1 else { continue }
+                        let rect = CGRect(x: CGFloat(col) * cell + cell / 2,
+                                          y: CGFloat(row) * cell + cell / 2,
+                                          width: 1.5, height: 1.5)
+                        context.fill(Path(rect), with: .color(Self.shell.opacity(0.1 + 0.3 * brightness)))
+                    }
+                }
+
+                // Sideways patrol: triangle wave, two-frame claw/leg wiggle,
+                // plus a tiny vertical bob.
+                let rows = Self.frames[Int(t / 0.3) % 2]
+                let px = max(2, ((size.height - 4) / 8).rounded(.down))
+                let spriteWidth = 11 * px
+                let travel = max(1, size.width - spriteWidth)
+                let phase = t.truncatingRemainder(dividingBy: 18) / 18
+                let tri = phase < 0.5 ? phase * 2 : (1 - phase) * 2
+                let x0 = travel * tri
+                let y0 = (size.height - 8 * px) / 2 + (Int(t / 0.3) % 2 == 0 ? 0 : 1)
+                for (row, line) in rows.enumerated() {
+                    for (col, ch) in line.enumerated() where ch == "#" {
+                        let rect = CGRect(x: x0 + CGFloat(col) * px,
+                                          y: y0 + CGFloat(row) * px,
+                                          width: px, height: px)
+                        context.fill(Path(rect), with: .color(Self.shell.opacity(0.9)))
                     }
                 }
             }
@@ -1226,9 +1303,10 @@ private struct PixelPetPixels: View {
 }
 
 /// 贪吃蛇: a small retro snake chasing food on a pixel grid.
-/// Moves automatically using a simple shortest-path heuristic.
+/// AI: BFS shortest path to food, taken only if the snake can still reach its
+/// own tail afterwards; otherwise it chases its tail to stay alive.
 private struct SnakePixels: View {
-    struct Point: Hashable, Equatable {
+    struct Point: Hashable {
         var x: Int
         var y: Int
     }
@@ -1236,30 +1314,69 @@ private struct SnakePixels: View {
     @State private var snake: [Point] = []
     @State private var food: Point = Point(x: 0, y: 0)
     @State private var steps = 0
-    private let timer = Timer.publish(every: 0.16, on: .main, in: .common).autoconnect()
-    private let cell: CGFloat = 4
+    @State private var stepsSinceFood = 0
+    @State private var isGameOver = false
+    @State private var gameOverTimer = 0
+    private let timer = Timer.publish(every: 0.14, on: .main, in: .common).autoconnect()
+    private let cell: CGFloat = 6
 
     var body: some View {
         GeometryReader { geo in
             Canvas { context, size in
-                // Draw food (red pixel)
-                let foodRect = CGRect(x: CGFloat(food.x) * cell + 1,
-                                      y: CGFloat(food.y) * cell + 1,
-                                      width: cell - 1.5, height: cell - 1.5)
-                context.fill(Path(foodRect), with: .color(.red))
+                // Pulsing food with a soft glow
+                if !isGameOver {
+                    let pulse = 0.7 + 0.3 * abs(sin(Double(steps) * 0.45))
+                    let s = (cell - 1) * pulse
+                    let cx = CGFloat(food.x) * cell + cell / 2
+                    let cy = CGFloat(food.y) * cell + cell / 2
+                    let foodRect = CGRect(x: cx - s / 2, y: cy - s / 2, width: s, height: s)
+                    context.fill(Path(ellipseIn: foodRect.insetBy(dx: -2, dy: -2)),
+                                 with: .color(.red.opacity(0.25)))
+                    context.fill(Path(ellipseIn: foodRect),
+                                 with: .color(Color(red: 1.0, green: 0.32, blue: 0.28)))
+                }
 
-                // Draw snake segments
+                // Snake: rounded segments, hue drifting green→teal toward the tail
+                let count = max(snake.count - 1, 1)
                 for (index, segment) in snake.enumerated() {
-                    let rect = CGRect(x: CGFloat(segment.x) * cell + 1,
-                                      y: CGFloat(segment.y) * cell + 1,
-                                      width: cell - 1.5, height: cell - 1.5)
-                    // Head is white, body fades from mint to deep green
-                    let color: Color = index == 0
-                        ? .white
-                        : Color(red: 0.0,
-                                green: max(0.4, 0.95 - Double(index) * 0.05),
-                                blue: max(0.3, 0.7 - Double(index) * 0.03))
-                    context.fill(Path(rect), with: .color(color.opacity(0.9)))
+                    let rect = CGRect(x: CGFloat(segment.x) * cell + 0.5,
+                                      y: CGFloat(segment.y) * cell + 0.5,
+                                      width: cell - 1, height: cell - 1)
+                    let color: Color
+                    if isGameOver {
+                        color = .gray
+                    } else if index == 0 {
+                        color = .white
+                    } else {
+                        let t = Double(index) / Double(count)
+                        color = Color(hue: 0.36 + 0.14 * t,
+                                      saturation: 0.85,
+                                      brightness: 0.95 - 0.35 * t)
+                    }
+                    context.fill(Path(roundedRect: rect, cornerRadius: 2),
+                                 with: .color(color.opacity(0.9)))
+                }
+
+                // Eyes on the head, offset toward travel direction
+                if !isGameOver, snake.count > 1 {
+                    let head = snake[0], neck = snake[1]
+                    let dx = CGFloat(head.x - neck.x), dy = CGFloat(head.y - neck.y)
+                    let cx = CGFloat(head.x) * cell + cell / 2 + dx
+                    let cy = CGFloat(head.y) * cell + cell / 2 + dy
+                    // Perpendicular offset separates the two eyes
+                    for side: CGFloat in [-1, 1] {
+                        let eye = CGRect(x: cx - dy * side * 1.2 - 0.6,
+                                         y: cy - dx * side * 1.2 - 0.6,
+                                         width: 1.2, height: 1.2)
+                        context.fill(Path(ellipseIn: eye), with: .color(.black.opacity(0.85)))
+                    }
+                }
+
+                if isGameOver {
+                    let text = Text("GAME OVER")
+                        .font(.system(size: 12, weight: .heavy, design: .monospaced))
+                        .foregroundColor(Color(red: 1.0, green: 0.45, blue: 0.45))
+                    context.draw(text, at: CGPoint(x: size.width / 2, y: size.height / 2))
                 }
             }
             .onAppear { reseed(geo.size) }
@@ -1275,7 +1392,6 @@ private struct SnakePixels: View {
         let (rows, cols) = dims(size)
         guard rows > 2, cols > 4 else { return }
 
-        // Start in the middle
         let midY = rows / 2
         let midX = cols / 2
         snake = [
@@ -1286,73 +1402,140 @@ private struct SnakePixels: View {
 
         spawnFood(rows: rows, cols: cols)
         steps = 0
+        stepsSinceFood = 0
+        isGameOver = false
+        gameOverTimer = 0
     }
 
+    /// Places food on a random free cell; reseeds when the board is full (= win).
     private func spawnFood(rows: Int, cols: Int) {
-        var attempts = 0
-        while attempts < 100 {
-            let rx = Int.random(in: 0..<cols)
-            let ry = Int.random(in: 0..<rows)
-            let candidate = Point(x: rx, y: ry)
-            if !snake.contains(candidate) {
-                food = candidate
-                return
+        let body = Set(snake)
+        let free = (0..<cols).flatMap { x in
+            (0..<rows).compactMap { y -> Point? in
+                let p = Point(x: x, y: y)
+                return body.contains(p) ? nil : p
             }
-            attempts += 1
         }
-        food = Point(x: 0, y: 0)
+        if let candidate = free.randomElement() {
+            food = candidate
+        } else {
+            snake = []
+        }
+    }
+
+    private func neighbors(_ p: Point, rows: Int, cols: Int) -> [Point] {
+        [Point(x: p.x + 1, y: p.y), Point(x: p.x - 1, y: p.y),
+         Point(x: p.x, y: p.y + 1), Point(x: p.x, y: p.y - 1)]
+            .filter { $0.x >= 0 && $0.x < cols && $0.y >= 0 && $0.y < rows }
+    }
+
+    /// BFS shortest path from `start` to `goal` avoiding `blocked` (goal itself is
+    /// always enterable). Returns the path excluding `start`, or nil if unreachable.
+    private func bfsPath(from start: Point, to goal: Point, blocked: Set<Point>,
+                         rows: Int, cols: Int) -> [Point]? {
+        var queue = [start]
+        var qi = 0
+        var cameFrom: [Point: Point] = [:]
+        var visited: Set<Point> = [start]
+        while qi < queue.count {
+            let p = queue[qi]
+            qi += 1
+            if p == goal {
+                var path: [Point] = []
+                var cur = p
+                while cur != start {
+                    path.append(cur)
+                    cur = cameFrom[cur]!
+                }
+                return path.reversed()
+            }
+            for n in neighbors(p, rows: rows, cols: cols)
+            where !visited.contains(n) && (n == goal || !blocked.contains(n)) {
+                visited.insert(n)
+                cameFrom[n] = p
+                queue.append(n)
+            }
+        }
+        return nil
+    }
+
+    /// After walking `path` to the food (growing by 1), can the snake still reach
+    /// its own tail? Reaching the tail guarantees it is not boxed in.
+    private func isSafeAfterEating(path: [Point], rows: Int, cols: Int) -> Bool {
+        let future = Array((path.reversed() + snake).prefix(snake.count + 1))
+        guard let newHead = future.first, let newTail = future.last else { return false }
+        let blocked = Set(future.dropLast())
+        return bfsPath(from: newHead, to: newTail, blocked: blocked,
+                       rows: rows, cols: cols) != nil
     }
 
     private func step(_ size: CGSize) {
+        if isGameOver {
+            gameOverTimer -= 1
+            if gameOverTimer <= 0 {
+                reseed(size)
+            }
+            return
+        }
+
         let (rows, cols) = dims(size)
         guard rows > 2, cols > 4 else { return }
-        if snake.isEmpty {
+        guard let head = snake.first, let tail = snake.last,
+              head.x < cols, head.y < rows else {
             reseed(size)
             return
         }
 
-        let head = snake[0]
+        let body = Set(snake)
+        var nextMove: Point?
 
-        // Find candidate moves
-        let possibleMoves = [
-            Point(x: head.x + 1, y: head.y),
-            Point(x: head.x - 1, y: head.y),
-            Point(x: head.x, y: head.y + 1),
-            Point(x: head.x, y: head.y - 1)
-        ]
-
-        // Filter valid moves (within bounds, not hitting body)
-        let validMoves = possibleMoves.filter { p in
-            p.x >= 0 && p.x < cols && p.y >= 0 && p.y < rows && !snake.contains(p)
-        }
-
-        if validMoves.isEmpty {
+        // Hunger breaks the tail-chase livelock: after ~1 board sweep without
+        // eating, gamble on the food path even if the post-eat safety check
+        // fails; after 2 sweeps, restart rather than loop forever.
+        let starving = stepsSinceFood > rows * cols
+        if stepsSinceFood > rows * cols * 2 {
             reseed(size)
             return
         }
 
-        // Choose move closest to food (Manhattan distance)
-        let bestMove = validMoves.min { p1, p2 in
-            let d1 = abs(p1.x - food.x) + abs(p1.y - food.y)
-            let d2 = abs(p2.x - food.x) + abs(p2.y - food.y)
-            return d1 < d2
-        } ?? validMoves[0]
+        // 1. Shortest path to food, but only if we stay able to reach our tail after.
+        var foodObstacles = body
+        foodObstacles.remove(tail) // tail vacates as we advance
+        if let path = bfsPath(from: head, to: food, blocked: foodObstacles,
+                              rows: rows, cols: cols),
+           starving || isSafeAfterEating(path: path, rows: rows, cols: cols) {
+            nextMove = path.first
+        }
 
-        // Move head
-        if bestMove == food {
-            snake.insert(bestMove, at: 0)
+        // 2. Otherwise chase the tail — always survivable while a tail path exists.
+        if nextMove == nil,
+           let path = bfsPath(from: head, to: tail, blocked: body.subtracting([tail]),
+                              rows: rows, cols: cols),
+           let first = path.first, first != food || path.count > 1 {
+            nextMove = first
+        }
+
+        // 3. Last resort: any legal move.
+        if nextMove == nil {
+            nextMove = neighbors(head, rows: rows, cols: cols)
+                .first { !body.contains($0) }
+        }
+
+        guard let move = nextMove else {
+            isGameOver = true
+            gameOverTimer = 14 // pause ~2s before restarting
+            return
+        }
+
+        snake.insert(move, at: 0)
+        if move == food {
             spawnFood(rows: rows, cols: cols)
+            stepsSinceFood = 0
         } else {
-            snake.insert(bestMove, at: 0)
             snake.removeLast()
+            stepsSinceFood += 1
         }
-
         steps += 1
-
-        // Reset if snake is too long or steps exceed maximum (avoid loops/getting stuck)
-        if snake.count > 25 || steps > 500 {
-            reseed(size)
-        }
     }
 }
 
@@ -1622,11 +1805,58 @@ private struct ShmupPixels: View {
     var body: some View {
         GeometryReader { geo in
             Canvas { context, size in
-                // Draw ship (cyan)
-                let shipRect = CGRect(x: 10, y: shipY - 3, width: 8, height: 6)
-                context.fill(Path(shipRect), with: .color(.cyan))
-                let engineRect = CGRect(x: 6, y: shipY - 1, width: 4, height: 2)
-                context.fill(Path(engineRect), with: .color(.orange))
+                // Draw ship (sleek retro jet fighter plane)
+                let planePath = Path { path in
+                    // Start at nose (x: 18, y: shipY)
+                    path.move(to: CGPoint(x: 18, y: shipY))
+                    // Fuselage top to front of wing
+                    path.addLine(to: CGPoint(x: 13, y: shipY - 1.5))
+                    // Wing leading edge sweeps back
+                    path.addLine(to: CGPoint(x: 9, y: shipY - 5))
+                    // Wing tip
+                    path.addLine(to: CGPoint(x: 7, y: shipY - 5))
+                    // Wing trailing edge sweeps forward
+                    path.addLine(to: CGPoint(x: 10, y: shipY - 1.5))
+                    // Fuselage top to tail
+                    path.addLine(to: CGPoint(x: 5, y: shipY - 1.5))
+                    // Tail fin top leading edge sweeps back
+                    path.addLine(to: CGPoint(x: 3, y: shipY - 4))
+                    // Tail fin top tip
+                    path.addLine(to: CGPoint(x: 2, y: shipY - 4))
+                    // Tail trailing edge to back-center engine nozzle
+                    path.addLine(to: CGPoint(x: 4, y: shipY))
+                    
+                    // Mirror for bottom side:
+                    // Tail fin bottom tip
+                    path.addLine(to: CGPoint(x: 2, y: shipY + 4))
+                    path.addLine(to: CGPoint(x: 3, y: shipY + 4))
+                    // Fuselage bottom to wing trailing edge
+                    path.addLine(to: CGPoint(x: 5, y: shipY + 1.5))
+                    path.addLine(to: CGPoint(x: 10, y: shipY + 1.5))
+                    // Wing trailing edge
+                    path.addLine(to: CGPoint(x: 7, y: shipY + 5))
+                    // Wing tip
+                    path.addLine(to: CGPoint(x: 9, y: shipY + 5))
+                    // Wing leading edge back to fuselage
+                    path.addLine(to: CGPoint(x: 13, y: shipY + 1.5))
+                    
+                    path.closeSubpath()
+                }
+                context.fill(planePath, with: .color(.cyan))
+
+                // Engine exhaust fire (animated/flickering)
+                let fireOffset = (frameCounter % 2 == 0) ? CGFloat(2) : CGFloat(5)
+                let engineFirePath = Path { path in
+                    path.move(to: CGPoint(x: 4, y: shipY - 1))
+                    path.addLine(to: CGPoint(x: 4 - fireOffset, y: shipY))
+                    path.addLine(to: CGPoint(x: 4, y: shipY + 1))
+                    path.closeSubpath()
+                }
+                context.fill(engineFirePath, with: .color(.orange))
+
+                // Cockpit window (tiny white details)
+                let cockpitRect = CGRect(x: 13, y: shipY - 0.75, width: 2, height: 1.5)
+                context.fill(Path(cockpitRect), with: .color(.white))
 
                 // Draw lasers (red rays)
                 for laser in lasers {
@@ -2068,19 +2298,27 @@ private struct DinoRunPixels: View {
     }
 }
 
-/// 电子木鱼: an automatic pixel-art wooden fish being knocked periodically, displaying floating "功德+1".
+/// 电子木鱼: a pixel-art wooden fish struck from above by a mallet, with
+/// "功德+1" floating up on its left. Fish scales with the bar height.
 private struct WoodenFishPixels: View {
-    private static let woodenFishSprite: [String] = [
-        "....#######....",
-        "..###########..",
-        ".#############.",
-        "#############..",
-        "####..#########",  // resonance slit
-        "###....########",  // resonance slit
-        ".#############.",
-        "..###########..",
-        "....#######...."
+    // 17×11 muyu sprite: round body, classic slit mouth on the lower left.
+    // '#' wood, 'o' highlight.
+    private static let sprite: [String] = [
+        ".....#######.....",
+        "...####oo######..",
+        "..####oo#######..",
+        ".###############.",
+        "#################",
+        "#################",
+        "#.......#########",
+        "##.....##########",
+        ".###############.",
+        "..#############..",
+        "....#########....",
     ]
+
+    private static let wood = Color(red: 0.72, green: 0.53, blue: 0.34)
+    private static let woodLight = Color(red: 0.85, green: 0.68, blue: 0.48)
 
     struct FloatingText: Identifiable {
         let id = UUID()
@@ -2095,73 +2333,65 @@ private struct WoodenFishPixels: View {
     var body: some View {
         GeometryReader { geo in
             Canvas { context, size in
-                let midX = size.width / 2
-                let midY = size.height / 2
                 let t = frameCounter % 24  // 24 * 0.05s = 1.2s cycle
 
-                // 1. Calculate animation states
-                let fishScale: CGFloat = (t >= 3 && t <= 5) ? 1.12 : 1.0
-                
-                // Mallet angle (swinging from -0.3 rad to 0.2 rad upon hit)
-                let angle: Double
+                let px = max(1.5, ((size.height - 4) / 11).rounded(.down))
+                let fishW = 17 * px
+                let fishH = 11 * px
+                // Fish sits slightly right of center, leaving room for text.
+                let fx0 = size.width / 2 - fishW / 2 + 10
+                let fy0 = size.height - 1 - fishH  // grounded at the bottom
+
+                // 1. Mallet strike progress: 0 = raised, 1 = hitting the top.
+                let strike: CGFloat
                 if t < 3 {
-                    angle = -0.3 + 0.5 * Double(t) / 3.0
-                } else if t >= 3 && t < 8 {
-                    angle = 0.2 - 0.5 * Double(t - 3) / 5.0
+                    strike = CGFloat(t) / 3
+                } else if t < 8 {
+                    strike = 1 - CGFloat(t - 3) / 5
                 } else {
-                    angle = -0.3
+                    strike = 0
                 }
 
-                // 2. Draw Wooden Fish
+                // 2. Wooden fish, squashed vertically on impact.
+                let squash: CGFloat = (t >= 3 && t <= 5) ? 0.88 : 1.0
                 context.drawLayer { ctx in
-                    ctx.translateBy(x: midX - 8, y: midY)
-                    ctx.scaleBy(x: fishScale, y: fishScale)
-                    ctx.translateBy(x: -(midX - 8), y: -midY)
-                    
-                    let fx0 = midX - 15
-                    let fy0 = midY - 4.5
-                    
-                    for (rowIdx, line) in Self.woodenFishSprite.enumerated() {
-                        for (colIdx, ch) in line.enumerated() where ch == "#" {
-                            let rect = CGRect(
-                                x: fx0 + CGFloat(colIdx),
-                                y: fy0 + CGFloat(rowIdx),
-                                width: 1,
-                                height: 1
-                            )
-                            ctx.fill(Path(rect), with: .color(Color(red: 0.65, green: 0.5, blue: 0.4)))
+                    let cx = fx0 + fishW / 2
+                    ctx.translateBy(x: cx, y: fy0 + fishH)
+                    ctx.scaleBy(x: 2 - squash, y: squash)
+                    ctx.translateBy(x: -cx, y: -(fy0 + fishH))
+                    for (rowIdx, line) in Self.sprite.enumerated() {
+                        for (colIdx, ch) in line.enumerated() where ch != "." {
+                            let rect = CGRect(x: fx0 + CGFloat(colIdx) * px,
+                                              y: fy0 + CGFloat(rowIdx) * px,
+                                              width: px, height: px)
+                            ctx.fill(Path(rect), with: .color(ch == "o" ? Self.woodLight : Self.wood))
                         }
                     }
                 }
 
-                // 3. Draw Mallet (stick + head)
-                context.drawLayer { ctx in
-                    let pivot = CGPoint(x: midX + 8, y: midY - 6)
-                    ctx.translateBy(x: pivot.x, y: pivot.y)
-                    ctx.rotate(by: Angle(radians: angle))
-                    ctx.translateBy(x: -pivot.x, y: -pivot.y)
-
-                    // Draw Stick (diagonal line)
-                    let stickPath = Path { p in
-                        p.move(to: pivot)
-                        p.addLine(to: CGPoint(x: pivot.x - 10, y: pivot.y + 4))
-                    }
-                    ctx.stroke(stickPath, with: .color(.gray), lineWidth: 1.5)
-
-                    // Draw Head of mallet
-                    let headRect = CGRect(x: pivot.x - 12, y: pivot.y + 2.5, width: 3, height: 3)
-                    ctx.fill(Path(headRect), with: .color(.white))
+                // 3. Mallet striking straight down onto the fish top.
+                let headR = 1.6 * px
+                let gap = 4 * px  // travel distance above the fish
+                let headX = fx0 + fishW / 2
+                let headY = fy0 - headR - gap * (1 - strike)
+                let stick = Path { p in
+                    p.move(to: CGPoint(x: headX, y: headY))
+                    p.addLine(to: CGPoint(x: headX + 7 * px, y: max(1, headY - 4 * px)))
                 }
+                context.stroke(stick, with: .color(.gray), lineWidth: max(1.5, px * 0.7))
+                let headRect = CGRect(x: headX - headR, y: headY - headR,
+                                      width: headR * 2, height: headR * 2)
+                context.fill(Path(ellipseIn: headRect), with: .color(Self.woodLight))
 
-                // 4. Draw Floating Merit Texts
+                // 4. Floating merit text, rising on the fish's left.
                 for textItem in floatingTexts {
                     let text = Text("功德+1")
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
                         .foregroundColor(.yellow.opacity(textItem.opacity))
-                    
                     context.draw(
                         text,
-                        at: CGPoint(x: midX - 8, y: midY - 8 - textItem.yOffset),
+                        at: CGPoint(x: max(20, fx0 - 24),
+                                    y: size.height / 2 + 6 - textItem.yOffset),
                         anchor: .center
                     )
                 }

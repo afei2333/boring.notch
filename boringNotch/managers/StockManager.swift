@@ -87,6 +87,23 @@ enum StockMarket: String, CaseIterable, Identifiable {
         default: .all
         }
     }
+
+    /// Default tab by wall clock: HK during 港/A 竞价+盘中 (北京 9:15–16:10),
+    /// US during its 盘前/盘中/盘后 (纽约 4:00–20:00), otherwise 总.
+    /// ponytail: ignores holidays — a wrong tab on a holiday is harmless.
+    static var current: StockMarket {
+        func minuteOfDay(in tz: String) -> (weekday: Int, minute: Int) {
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = TimeZone(identifier: tz)!
+            let c = cal.dateComponents([.weekday, .hour, .minute], from: .now)
+            return (c.weekday!, c.hour! * 60 + c.minute!)
+        }
+        let cn = minuteOfDay(in: "Asia/Shanghai")
+        if (2...6).contains(cn.weekday), (555...970).contains(cn.minute) { return .hk }
+        let ny = minuteOfDay(in: "America/New_York")
+        if (2...6).contains(ny.weekday), (240..<1200).contains(ny.minute) { return .us }
+        return .all
+    }
 }
 
 /// A watchlist entry. Alert thresholds live in the shared template
@@ -138,7 +155,8 @@ final class StockManager: ObservableObject {
     @Published private(set) var state: BridgeState = .stopped
     @Published private(set) var quotes: [String: StockQuote] = [:]
     @Published private(set) var bridgeError: String?
-    @Published private(set) var firedAlerts: [FiredAlert] = Defaults[.stockAlertHistory] {
+    @Published private(set) var firedAlerts: [FiredAlert] = Defaults[.stockAlertHistory]
+        .filter { $0.date > .now.addingTimeInterval(-86400) } {
         didSet { Defaults[.stockAlertHistory] = firedAlerts }
     }
     @Published private(set) var unreadAlertCount = 0
@@ -416,6 +434,11 @@ final class StockManager: ObservableObject {
     }
 
     private func checkAlerts() {
+        // Drop alerts older than 24h (also filtered at load in the initializer).
+        let cutoff = Date.now.addingTimeInterval(-86400)
+        if firedAlerts.last.map({ $0.date <= cutoff }) == true {
+            firedAlerts.removeAll { $0.date <= cutoff }
+        }
         let changeThreshold = Defaults[.stockAlertChangePct]
         let reversalThreshold = Defaults[.stockAlertReversalPct]
         for watched in watchlist where watched.alertsEnabled {

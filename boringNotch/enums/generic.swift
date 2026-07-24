@@ -89,6 +89,7 @@ enum PixelAnimationStyle: String, CaseIterable, Identifiable, Defaults.Serializa
     case nyanCat = "彩虹猫"
     case dinoRun = "恐龙奔跑"
     case woodenFish = "电子木鱼"
+    case crab = "Clawd 吉祥物"
 
     var id: String { rawValue }
 }

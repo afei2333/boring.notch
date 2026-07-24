@@ -25,6 +25,7 @@ echo "=== 7. Restarting app ==="
 osascript -e 'tell application "LLD-AI" to quit' 2>/dev/null || true
 for _ in {1..10}; do pgrep -xq "LLD-AI" || break; sleep 0.5; done
 pkill -x "LLD-AI" 2>/dev/null || true
-open "/Applications/LLD-AI.app"
+# LaunchServices returns -600 if we open while the old process is still dying; retry.
+for _ in {1..5}; do open "/Applications/LLD-AI.app" && break; sleep 1; done
 
 echo "=== Build, codesign, sync and restart completed successfully! ==="

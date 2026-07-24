@@ -21,8 +21,10 @@ import argparse
 import json
 import math
 import os
+import subprocess
 import threading
 import time as _time
+import urllib.request
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -33,6 +35,8 @@ QUOTES = {}       # code -> merged quote dict (snapshot + pushes)
 RT = {}           # code -> {"date": "YYYY-MM-DD", "points": [{"t": "HH:MM", "p": price}]}
 EXT_RT = {}       # code -> {"key": "date|session", "points": [...]} sampled pre/after prices
 WATCHED = set()
+PULL_ONLY = set()  # no subscribe rights but futu snapshots work — 60s pulls only
+FALLBACK = set()   # OpenD refuses entirely (A股指数/日韩指数) — public quote APIs
 LAST_ERROR = None
 CTX = None
 FT = None
@@ -78,12 +82,15 @@ def _append_rt(code, time_str, price):
         entry["date"] = date
         entry["points"] = []
     pts = entry["points"]
-    if pts and pts[-1]["t"] == hhmm:
-        pts[-1]["p"] = price
+    if pts:
+        if pts[-1]["t"] == hhmm:
+            pts[-1]["p"] = price
+        elif hhmm > pts[-1]["t"]:
+            pts.append({"t": hhmm, "p": price})
+            if len(pts) > 1000:
+                del pts[: len(pts) - 1000]
     else:
         pts.append({"t": hhmm, "p": price})
-        if len(pts) > 1000:
-            del pts[: len(pts) - 1000]
 
 
 def _merge_quote(code, **fields):
@@ -187,6 +194,18 @@ def _ext(q):
 
 
 def _fetch_snapshot(codes):
+    """Route each code to its working source (futu / Tencent / sina), so every
+    caller — /snapshot, the 60s loop, _subscribe — handles all of them."""
+    with LOCK:
+        fb_intl = [c for c in codes if c in FALLBACK and c in INTL_IDS]
+        fb_tc = [c for c in codes if c in FALLBACK and c not in INTL_IDS]
+        futu = [c for c in codes if c not in FALLBACK]
+    ok = _tencent_fetch(fb_tc) if fb_tc else True
+    ok = (_intl_fetch(fb_intl) if fb_intl else True) and ok
+    return (_futu_snapshot(futu) if futu else True) and ok
+
+
+def _futu_snapshot(codes):
     qc = _ctx()
     if qc is None:
         return False
@@ -197,8 +216,160 @@ def _fetch_snapshot(codes):
     with LOCK:
         for row in data.to_dict("records"):
             _merge_snapshot_row(row)
+            if row["code"] in PULL_ONLY:
+                # No pushes for these — build the sparkline from snapshot ticks.
+                _append_rt(row["code"], str(row.get("update_time") or ""),
+                           _f(row, "last_price"))
     _set_error(None)
     return True
+
+
+def _tencent_fetch(codes):
+    """Free public quote API for SH./SZ. codes OpenD has no rights to (A股指数
+    需要行情权限，腾讯接口不需要). Fields are '~'-separated, GBK, per docs of
+    qt.gtimg.cn: 1 name, 2 bare code, 3 cur, 4 prev close, 5 open, 6 vol(手),
+    30 time YYYYMMDDHHMMSS, 33 high, 34 low, 37 turnover(万)."""
+    q = ",".join(c.replace(".", "").lower() for c in codes)  # SH.000001 -> sh000001
+    try:
+        with urllib.request.urlopen(f"https://qt.gtimg.cn/q={q}", timeout=5) as r:
+            raw = r.read().decode("gbk", "replace")
+    except OSError as e:
+        _set_error(f"A股指数备用行情源不可用: {e}")
+        return False
+    got = False
+    with LOCK:
+        for chunk in raw.split(";"):
+            var, sep, val = chunk.partition("=")
+            f = val.strip().strip('"').split("~")
+            if not sep or len(f) < 38 or not f[3]:
+                continue
+
+            def g(i, scale=1.0):
+                try:
+                    v = float(f[i]) * scale
+                except ValueError:
+                    return None
+                return v if math.isfinite(v) else None
+
+            code = f"{var.strip()[-8:-6].upper()}.{f[2]}"
+            t = f[30]
+            ts = (f"{t[:4]}-{t[4:6]}-{t[6:8]} {t[8:10]}:{t[10:12]}:{t[12:14]}"
+                  if len(t) >= 14 else None)
+            _merge_quote(code, name=f[1], cur=g(3), lastClose=g(4), open=g(5),
+                         volume=g(6, 100), high=g(33), low=g(34),
+                         turnover=g(37, 1e4), time=ts)
+            if ts:
+                _append_rt(code, ts, g(3))
+            got = True
+    if got:
+        _set_error(None)
+    return got
+
+
+def _tencent_prime(code):
+    """Backfill today's minute line so the sparkline is full on first load."""
+    sym = code.replace(".", "").lower()
+    url = f"https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={sym}"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as r:
+            d = json.load(r)["data"][sym]["data"]
+        day = f"{d['date'][:4]}-{d['date'][4:6]}-{d['date'][6:8]}"
+        with LOCK:
+            RT.pop(code, None)
+            for line in d["data"]:
+                parts = line.split()
+                if len(parts) >= 2:
+                    _append_rt(code, f"{day} {parts[0][:2]}:{parts[0][2:4]}",
+                               float(parts[1]))
+    except Exception:
+        pass  # sparkline fills from the 60s ticks instead
+
+
+# 日韩指数: futu has no JP/KR indices at all, Tencent no codes for them either.
+# Quotes come from sina 国际指数 (reliable); eastmoney only backfills the
+# minute line (its LB randomly drops connections — fine for a one-shot prime).
+INTL_IDS = {"JP.N225": ("znb_NKY", "100.N225"), "KR.KOSPI": ("znb_KOSPI", "100.KS11")}
+
+
+def _em_json(url, retries=3):
+    """eastmoney via curl: their CDN fingerprint-blocks python's TLS, and any
+    client gets connections randomly dropped — curl + retries rides it out."""
+    for i in range(retries):
+        p = subprocess.run(["curl", "-s", "--max-time", "5", url],
+                           capture_output=True)
+        if p.returncode == 0:
+            try:
+                return json.loads(p.stdout)
+            except ValueError:
+                pass
+        _time.sleep(0.3 * (i + 1))
+    raise OSError(f"curl failed after {retries} tries (last exit {p.returncode})")
+
+
+def _intl_fetch(codes):
+    """sina znb_ fields: name,cur,chg,chg%,localtime,epoch,date,time(北京),
+    open,prevClose,high,low,volume."""
+    keys = {INTL_IDS[c][0]: c for c in codes if c in INTL_IDS}
+    if not keys:
+        return False
+    req = urllib.request.Request(
+        "https://hq.sinajs.cn/list=" + ",".join(keys),
+        headers={"Referer": "https://finance.sina.com.cn"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            raw = r.read().decode("gbk", "replace")
+    except OSError as e:
+        _set_error(f"日韩指数行情源不可用: {e}")
+        return False
+    got = False
+    with LOCK:
+        for line in raw.splitlines():
+            if "hq_str_" not in line or '="' not in line:
+                continue
+            key = line.split("hq_str_", 1)[1].split("=", 1)[0]
+            code = keys.get(key)
+            f = line.split('="', 1)[1].rstrip('";').split(",")
+            if not code or len(f) < 12 or not f[1]:
+                continue
+
+            def g(i):
+                try:
+                    v = float(f[i])
+                except ValueError:
+                    return None
+                return v if math.isfinite(v) and v != 0 else None
+
+            ts = f"{f[6]} {f[7]}" if len(f[6]) == 10 else None
+            _merge_quote(code, name=f[0], cur=g(1), open=g(8), lastClose=g(9),
+                         high=g(10), low=g(11), time=ts)
+            if ts:
+                _append_rt(code, ts, g(1))
+            got = True
+    if got:
+        _set_error(None)
+    return got
+
+
+def _eastmoney_prime(code):
+    """Backfill today's minute line (Beijing-time timestamps)."""
+    secid = INTL_IDS.get(code, (None, None))[1]
+    if not secid:
+        return
+    url = ("https://push2his.eastmoney.com/api/qt/stock/trends2/get?secid=" + secid
+           + "&fields1=f1&fields2=f51,f53&ndays=1&iscr=0")
+    try:
+        rows = (_em_json(url).get("data") or {}).get("trends") or []
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return  # sparkline fills from the 60s ticks instead
+    try:
+        with LOCK:
+            RT.pop(code, None)
+            for row in rows:
+                parts = row.split(",")
+                if len(parts) >= 2:
+                    _append_rt(code, parts[0], float(parts[1]))
+    except (OSError, ValueError):
+        pass
 
 
 def _prime_rt_history(codes):
@@ -236,33 +407,78 @@ def _prime_rt_history(codes):
         _time.sleep(3.5)
 
 
+SUB_TYPES = ["QUOTE", "RT_DATA", "K_1M"]  # names — FT is imported lazily
+
+
+def _subscribe(codes):
+    """Subscribe + prime. K_1M is only pulled (get_cur_kline off-hours backfill)
+    but pulls require a subscription. One call per code so a single bad/mistyped
+    code can't block the valid ones."""
+    qc = _ctx()
+    if qc is None:
+        return False
+    ok, errors = [], []
+    for code in codes:
+        if code in INTL_IDS:  # futu can't know these — straight to fallback
+            if _intl_fetch([code]):
+                with LOCK:
+                    FALLBACK.add(code)
+                threading.Thread(target=_eastmoney_prime, args=(code,), daemon=True).start()
+            else:
+                errors.append(f"{code}: 日韩指数行情源不可用")
+            continue
+        ret, err = qc.subscribe([code], [getattr(FT.SubType, t) for t in SUB_TYPES])
+        if ret != FT.RET_OK:
+            # Some securities (ETFs, new listings) reject RT_DATA/K_1M; quotes
+            # still work — degrade to QUOTE-only instead of failing entirely.
+            ret, err = qc.subscribe([code], [FT.SubType.QUOTE])
+        if ret == FT.RET_OK:
+            with LOCK:
+                PULL_ONLY.discard(code)
+                FALLBACK.discard(code)
+            ok.append(code)
+        elif _futu_snapshot([code]):
+            # No subscribe rights but snapshot pulls work — 60s pull-only.
+            with LOCK:
+                PULL_ONLY.add(code)
+        elif code[:3] in ("SH.", "SZ.") and _tencent_fetch([code]):
+            # OpenD refuses A-share indices entirely without 指数行情权限;
+            # Tencent's public endpoint doesn't need one.
+            with LOCK:
+                FALLBACK.add(code)
+            threading.Thread(target=_tencent_prime, args=(code,), daemon=True).start()
+        else:
+            errors.append(f"{code}: {err}")
+    if ok:
+        _fetch_snapshot(ok)  # names, 52w, initial prices
+        threading.Thread(target=_prime_rt_history, args=(ok,), daemon=True).start()
+    # after the fetches: a successful fetch clears LAST_ERROR, don't let it
+    # swallow real subscribe failures
+    _set_error("; ".join(errors) if errors else None)
+    return not errors
+
+
 def _watch(symbols):
+    """/watch always posts the whole watchlist, so it is the desired set, not a
+    delta: WATCHED tracks what the app wants (even if subscribing fails — the
+    reconcile in _snapshot_loop retries), and codes the user removed are
+    unsubscribed because each one holds 3 of OpenD's 100 subscription slots."""
     qc = _ctx()
     if qc is None:
         return False
     with LOCK:
         new = [s for s in symbols if s not in WATCHED]
+        dropped = [s for s in WATCHED if s not in symbols]
+        WATCHED.clear()
+        WATCHED.update(symbols)
+        PULL_ONLY.intersection_update(symbols)
+        FALLBACK.intersection_update(symbols)
+    if dropped:
+        qc.unsubscribe(dropped, [getattr(FT.SubType, t) for t in SUB_TYPES])
     if not new:
         _set_error(None)  # nothing pending — don't let an old bad-code error linger
         return True
-    # ponytail: subscribe-only, never unsubscribe — quota is 100+, watchlists are small
-    # K_1M is only pulled (get_cur_kline off-hours backfill) but pulls require a subscription.
-    # One call per code so a single bad/mistyped code can't block the valid ones.
-    ok, errors = [], []
-    for code in new:
-        ret, err = qc.subscribe([code], [FT.SubType.QUOTE, FT.SubType.RT_DATA, FT.SubType.K_1M])
-        if ret != FT.RET_OK:
-            # Some securities (ETFs, new listings) reject RT_DATA/K_1M; quotes
-            # still work — degrade to QUOTE-only instead of failing entirely.
-            ret, err = qc.subscribe([code], [FT.SubType.QUOTE])
-        (ok.append(code) if ret == FT.RET_OK else errors.append(f"{code}: {err}"))
-    with LOCK:
-        WATCHED.update(ok)
-    _set_error("; ".join(errors) if errors else None)
-    if ok:
-        _fetch_snapshot(ok)  # names, 52w, initial prices
-        threading.Thread(target=_prime_rt_history, args=(ok,), daemon=True).start()
-    return not errors
+    return _subscribe(new)
 
 
 # Symbol search: full code+name universe per (market, type), loaded lazily on
@@ -317,6 +533,14 @@ def _load_basicinfo():
             pass
 
 
+# Indices aren't in get_stock_basicinfo's universe — searchable by hand.
+STATIC_INDEXES = [
+    {"symbol": "SH.000001", "name": "上证指数"},
+    {"symbol": "SZ.399001", "name": "深证成指"},
+    {"symbol": "SZ.399006", "name": "创业板指"},
+]
+
+
 def _search_payload(q):
     global BASICINFO_STATE
     if BASICINFO_STATE == "idle":
@@ -325,6 +549,10 @@ def _search_payload(q):
     ql = q.strip().upper()
     exact, prefix, contains = [], [], []
     if ql:
+        for r in STATIC_INDEXES:
+            bare = r["symbol"].split(".", 1)[-1]
+            if ql in r["symbol"] or ql in r["name"].upper() or bare.startswith(ql):
+                exact.append(r)
         with LOCK:
             lists = list(BASICINFO.values())
         for rows in lists:
@@ -352,13 +580,26 @@ def _downsample(points, limit=120):
     return [points[round(i * step)] for i in range(limit)]
 
 
+def _get_clean_rt(entry):
+    if not entry or not entry["points"]:
+        return []
+    sorted_pts = sorted(entry["points"], key=lambda x: x["t"])
+    deduped = []
+    for p in sorted_pts:
+        if deduped and deduped[-1]["t"] == p["t"]:
+            deduped[-1] = {"t": p["t"], "p": p["p"]}
+        else:
+            deduped.append({"t": p["t"], "p": p["p"]})
+    return _downsample(deduped)
+
+
 def _quotes_payload():
     with LOCK:
         quotes = []
         for code, q in QUOTES.items():
             out = dict(q)
             entry = RT.get(code)
-            out["rt"] = _downsample(list(entry["points"])) if entry else []
+            out["rt"] = _get_clean_rt(entry)
             out["ext"] = _ext(out)
             if out["ext"]:
                 ext_pts = EXT_RT.get(code, {}).get("points", [])
@@ -437,7 +678,7 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 q = dict(QUOTES.get(symbol, {"symbol": symbol}))
                 entry = RT.get(symbol)
-                q["rt"] = _downsample(list(entry["points"])) if entry else []
+                q["rt"] = _get_clean_rt(entry)
                 q["ext"] = _ext(q)
                 if q["ext"]:
                     ext_pts = EXT_RT.get(symbol, {}).get("points", [])
@@ -487,10 +728,24 @@ def _rt_is_stale(code, q):
     return gap > 15
 
 
+def _live_subs():
+    """Codes OpenD actually holds on our connection, or None if it can't say.
+    WATCHED alone lies: OpenD drops subscriptions on reconnect/quota pressure
+    without telling the SDK, and a code whose subscribe failed once would never
+    be retried — either way the quote freezes silently (A-share indices did)."""
+    qc = _ctx()
+    if qc is None:
+        return None
+    ret, data = qc.query_subscription(is_all_conn=False)
+    if ret != FT.RET_OK:
+        return None
+    return set(data.get("sub_list", {}).get("QUOTE", []))
+
+
 def _snapshot_loop():
     """Refresh snapshots every 60s: keeps ext-session prices, volume and 52w
     fresh even when OpenD sends no pushes (one batched call, quota 10/30s).
-    Also self-heals stale timeshares by re-watching (resubscribe + re-prime)."""
+    Also re-subscribes anything OpenD no longer has, plus stale timeshares."""
     while True:
         _time.sleep(60)
         with LOCK:
@@ -498,11 +753,13 @@ def _snapshot_loop():
         if not codes:
             continue
         _fetch_snapshot(codes)
+        live = _live_subs()
         with LOCK:
-            stale = [c for c in codes if _rt_is_stale(c, QUOTES.get(c) or {})]
-            WATCHED.difference_update(stale)
-        if stale:
-            _watch(stale)
+            broken = [c for c in codes if c not in PULL_ONLY and c not in FALLBACK
+                      and ((live is not None and c not in live)
+                           or _rt_is_stale(c, QUOTES.get(c) or {}))]
+        if broken:
+            _subscribe(broken)  # resubscribe + re-prime the timeshare
 
 
 def main():
