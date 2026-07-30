@@ -15,6 +15,7 @@ import SwiftUI
 struct StockSettings: View {
     @ObservedObject private var manager = StockManager.shared
     @Default(.stockAlertExplicit) var alertExplicit
+    @Default(.stockAlertDuration) var alertDuration
     @Default(.stockAlertChangePct) var alertChangePct
     @Default(.stockAlertReversalPct) var alertReversalPct
     @Default(.stockGreenUp) var greenUp
@@ -101,6 +102,7 @@ struct StockSettings: View {
                     Text("显式 · 显示消息全文和数量").tag(true)
                     Text("隐式 · 只显示提醒数量").tag(false)
                 }
+                Stepper("刘海提醒停留 \(Int(alertDuration)) 秒", value: $alertDuration, in: 1...30, step: 1)
                 Text("触发后自动重新武装（回到阈值 80% 以内），可重复提醒")
                     .font(.caption)
                     .foregroundStyle(.secondary)

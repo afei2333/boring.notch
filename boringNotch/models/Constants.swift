@@ -191,6 +191,8 @@ extension Defaults.Keys {
     static let stockAlertHistory = Key<[FiredAlert]>("stockAlertHistory", default: [])
     /// true = closed-notch alert shows the message text; false = only bell + count.
     static let stockAlertExplicit = Key<Bool>("stockAlertExplicit", default: true)
+    /// Seconds the closed-notch alert stays visible.
+    static let stockAlertDuration = Key<TimeInterval>("stockAlertDuration", default: 4)
     /// true = 绿涨红跌 (Apple style); false = 红涨绿跌 (Futu style).
     static let stockGreenUp = Key<Bool>("stockGreenUp", default: true)
     /// Port the local Futu OpenD listens on.

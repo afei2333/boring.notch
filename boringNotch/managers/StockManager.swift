@@ -63,6 +63,10 @@ struct StockQuote: Codable, Identifiable, Equatable {
     /// fill proportionally to session progress instead of stretching full-width.
     var sessionSegments: [(start: Int, end: Int)] {
         if let ext { return ext.label == "盘前" ? [(240, 570)] : [(960, 1200)] }
+        // 日韩 quotes carry 北京时间 timestamps (= 当地 -1h) from every source:
+        // 东京 09:00–15:30 含午休, 首尔 09:00–15:30 无午休.
+        if symbol.hasPrefix("JP.") { return [(480, 630), (690, 870)] }
+        if symbol.hasPrefix("KR.") { return [(480, 870)] }
         return switch StockMarket.of(symbol) {
         case .hk: [(570, 720), (780, 960)]
         case .cn: [(570, 690), (780, 900)]
@@ -286,7 +290,7 @@ final class StockManager: ObservableObject {
     @discardableResult
     func addSymbol(_ raw: String) -> Bool {
         let symbol = normalize(raw)
-        guard symbol.range(of: #"^(US|HK|SH|SZ)\.[A-Z0-9]{1,10}$"#, options: .regularExpression) != nil else {
+        guard symbol.range(of: #"^(US|HK|SH|SZ|JP|KR)\.[A-Z0-9]{1,10}$"#, options: .regularExpression) != nil else {
             return false
         }
         guard !watchlist.contains(where: { $0.symbol == symbol }) else { return true }
@@ -461,15 +465,16 @@ final class StockManager: ObservableObject {
             }
 
             if let threshold = reversalThreshold, let lastClose = quote.lastClose {
+                let now = Self.nowChange(quote.changePct)
                 if let high = quote.high, high > lastClose, high > 0 {
                     edge(key: "revDown|\(watched.symbol)", value: (high - cur) / high * 100,
                          threshold: threshold, day: day, symbol: watched.symbol,
-                         message: "\(name) 冲高回落，距高点 -\(Self.pct((high - cur) / high * 100, signed: false))")
+                         message: "\(name) 冲高回落 \(Self.pct((high - cur) / high * 100, signed: false))，\(now)")
                 }
                 if let low = quote.low, low < lastClose, low > 0 {
                     edge(key: "revUp|\(watched.symbol)", value: (cur - low) / low * 100,
                          threshold: threshold, day: day, symbol: watched.symbol,
-                         message: "\(name) 探底回升，距低点 +\(Self.pct((cur - low) / low * 100, signed: false))")
+                         message: "\(name) 探底回升 \(Self.pct((cur - low) / low * 100, signed: false))，\(now)")
                 }
             }
         }
@@ -497,7 +502,7 @@ final class StockManager: ObservableObject {
 
         let explicit = Defaults[.stockAlertExplicit]
         BoringViewCoordinator.shared.toggleSneakPeek(
-            status: true, type: .stockAlert, duration: 4,
+            status: true, type: .stockAlert, duration: Defaults[.stockAlertDuration],
             value: CGFloat(unreadAlertCount),
             message: explicit ? message : "")
         NSLog("📈 stock alert: \(message)")
@@ -508,6 +513,14 @@ final class StockManager: ObservableObject {
     static func price(_ value: Double?) -> String {
         guard let value else { return "–" }
         return String(format: value < 10 ? "%.3f" : "%.2f", value)
+    }
+
+    /// "现涨 1.23%" / "现跌 1.23%" / "现平" — or a hint when the quote has no
+    /// day change (missing lastClose, e.g. a partial push before the snapshot).
+    static func nowChange(_ pct: Double?) -> String {
+        guard let pct else { return "现涨跌幅暂无数据" }
+        if pct == 0 { return "现平" }
+        return "现\(pct > 0 ? "涨" : "跌") \(Self.pct(abs(pct), signed: false))"
     }
 
     static func pct(_ value: Double?, signed: Bool = true) -> String {
