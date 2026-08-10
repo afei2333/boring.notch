@@ -48,6 +48,7 @@ struct StocksView: View {
     @State private var sortMode: SortMode = .watchlist
     @State private var detailSymbol: String?
     @State private var showHistory = false
+    @State private var refreshing = false
 
     var body: some View {
         Group {
@@ -131,6 +132,26 @@ struct StocksView: View {
             }
             .buttonStyle(.plain)
             .help("历史提醒")
+            .padding(.leading, 4)
+            Button {
+                guard !refreshing else { return }
+                refreshing = true
+                Task {
+                    await manager.refresh(market: market)
+                    refreshing = false
+                }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 11))
+                    .foregroundStyle(refreshing ? .white : .gray)
+                    .rotationEffect(.degrees(refreshing ? 360 : 0))
+                    .animation(refreshing ? .linear(duration: 1).repeatForever(autoreverses: false)
+                                          : .default, value: refreshing)
+            }
+            .buttonStyle(.plain)
+            .disabled(refreshing)
+            .padding(.leading, 8)
+            .help("刷新\(market == .all ? "全部" : market.rawValue + "股")行情：一次性拉取最新价与时分图，拉完即释放订阅")
             Spacer()
             Button {
                 withAnimation(.smooth) { sortMode = sortMode.next }
@@ -302,7 +323,9 @@ struct StockSparkline: View {
     }
 
     var body: some View {
-        if points.count < 2 {
+        // ponytail: <2 points still draws the 昨收 baseline — an ext session that
+        // has only just started should not blank the whole cell.
+        if points.count < 2 && lastClose == nil {
             Rectangle().fill(.clear)
         } else {
             Chart {

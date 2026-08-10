@@ -4,9 +4,9 @@
 //
 //  Device status tab: CPU usage, RAM usage, network throughput and real-time
 //  power draw. CPU/RAM come from mach host statistics, network speed from
-//  getifaddrs deltas, and power from the SMC "PSTR" key (total system power,
-//  Apple Silicon) with a battery-registry fallback. Sampling only runs while
-//  the tab is visible.
+//  getifaddrs deltas, and power from the SMC keys "PSTR" (total system power),
+//  "PDTR" (DC-in) and "B0AP" (battery flow), with a battery-registry fallback
+//  for Intel. Sampling only runs while the tab is visible.
 //
 
 import AppKit
@@ -64,8 +64,8 @@ private final class SMC {
         return output
     }
 
-    /// Read a 4-char SMC key holding a float ("flt " type), e.g. "PSTR".
-    func readFloat(_ key: String) -> Float? {
+    /// Read the first 4 bytes (little-endian) of a 4-byte SMC key.
+    private func readWord(_ key: String) -> UInt32? {
         let keyCode = key.utf8.reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
 
         var info = ParamStruct()
@@ -79,8 +79,17 @@ private final class SMC {
         read.data8 = 5 // kSMCReadKey
         guard let out = call(&read) else { return nil }
         let b = out.bytes
-        let bits = UInt32(b.0) | UInt32(b.1) << 8 | UInt32(b.2) << 16 | UInt32(b.3) << 24
-        return Float(bitPattern: bits)
+        return UInt32(b.0) | UInt32(b.1) << 8 | UInt32(b.2) << 16 | UInt32(b.3) << 24
+    }
+
+    /// Read a 4-char SMC key holding a float ("flt " type), e.g. "PSTR".
+    func readFloat(_ key: String) -> Float? {
+        readWord(key).map { Float(bitPattern: $0) }
+    }
+
+    /// Read a 4-char SMC key holding a signed 32-bit int ("si32" type), e.g. "B0AP".
+    func readSInt32(_ key: String) -> Int32? {
+        readWord(key).map { Int32(bitPattern: $0) }
     }
 
     /// Enumerate all SMC key names starting with the given prefix.
@@ -264,23 +273,30 @@ final class SystemStatsManager: ObservableObject {
         powerWatts = SMC.shared.readFloat("PSTR").flatMap { $0 > 0 ? Double($0) : nil }
         adapterWatts = SMC.shared.readFloat("PDTR").flatMap { $0 > 0.5 ? Double($0) : nil }
 
+        // B0AP = live battery power in mW (+ charging, - draining). The AppleSmartBattery
+        // registry only refreshes Amperage/Voltage about once a minute, so it lags badly
+        // and made the three power numbers contradict each other; it's the Intel fallback.
+        if let mW = SMC.shared.readSInt32("B0AP") {
+            batteryWatts = Double(mW) / 1000
+        } else {
+            batteryWatts = registryBatteryWatts()
+        }
+        if powerWatts == nil, let batteryWatts {
+            powerWatts = abs(batteryWatts) // no PSTR (Intel): battery rate is best estimate
+        }
+    }
+
+    private func registryBatteryWatts() -> Double? {
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
-        guard service != 0 else { batteryWatts = nil; return }
+        guard service != 0 else { return nil }
         defer { IOObjectRelease(service) }
         func prop(_ key: String) -> Int? {
             IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?
                 .takeRetainedValue() as? Int
         }
-        if let mA = prop("Amperage"), let mV = prop("Voltage") {
-            // Amperage is signed (negative = draining); Int wraps it unsigned on some systems
-            let amps = Double(Int64(truncatingIfNeeded: Int64(mA))) / 1000
-            batteryWatts = amps * (Double(mV) / 1000)
-        } else {
-            batteryWatts = nil
-        }
-        if powerWatts == nil, let batteryWatts {
-            powerWatts = abs(batteryWatts) // no PSTR (Intel): battery rate is best estimate
-        }
+        guard let mA = prop("Amperage"), let mV = prop("Voltage") else { return nil }
+        // Amperage is signed (negative = draining) but arrives unsigned-wrapped on some Macs
+        return Double(Int32(truncatingIfNeeded: mA)) / 1000 * (Double(mV) / 1000)
     }
 }
 
@@ -288,6 +304,7 @@ final class SystemStatsManager: ObservableObject {
 
 struct SystemStatsView: View {
     @ObservedObject private var manager = SystemStatsManager.shared
+    @ObservedObject private var battery = BatteryStatusViewModel.shared
 
     private func tempString(_ celsius: Double?) -> String {
         celsius.map { String(format: "%.0f°C", $0) } ?? "--"
@@ -349,16 +366,18 @@ struct SystemStatsView: View {
         .onDisappear { manager.stop() }
     }
 
-    // e.g. "电源 45W · 充电 15W" / "电池 -12W"; nil when nothing to show
+    // e.g. "76% · 充电 15W" / "76% · 电池 -12W" / "76% · 电源 45W"; nil when nothing to show
     private var powerDetail: String? {
         var parts: [String] = []
-        if let ac = manager.adapterWatts {
-            parts.append(String(format: "电源 %.0fW", ac))
+        if battery.levelBattery > 0 {
+            parts.append(String(format: "%.0f%%", battery.levelBattery))
         }
         if let batt = manager.batteryWatts, abs(batt) >= 0.5 {
             parts.append(batt > 0
                 ? String(format: "充电 %.0fW", batt)
                 : String(format: "电池 -%.0fW", -batt))
+        } else if let ac = manager.adapterWatts {
+            parts.append(String(format: "电源 %.0fW", ac))
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }

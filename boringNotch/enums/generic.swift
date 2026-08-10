@@ -90,6 +90,11 @@ enum PixelAnimationStyle: String, CaseIterable, Identifiable, Defaults.Serializa
     case dinoRun = "恐龙奔跑"
     case woodenFish = "电子木鱼"
     case crab = "Clawd 吉祥物"
+    case ecg = "心电脉搏"
+    case dna = "DNA 双螺旋"
+    case aurora = "极光流带"
+    case dayNight = "日月轮转"
+    case sakura = "樱花飘落"
 
     var id: String { rawValue }
 }

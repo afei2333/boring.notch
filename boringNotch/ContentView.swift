@@ -152,14 +152,11 @@ struct ContentView: View {
                 
                 mainLayout
                     .frame(height: vm.notchState == .open ? vm.notchSize.height : nil)
-                    .conditionalModifier(true) { view in
-                        let openAnimation = Animation.spring(response: 0.42, dampingFraction: 0.8, blendDuration: 0)
-                        let closeAnimation = Animation.spring(response: 0.45, dampingFraction: 1.0, blendDuration: 0)
-                        
-                        return view
-                            .animation(vm.notchState == .open ? openAnimation : closeAnimation, value: vm.notchState)
-                            .animation(.smooth, value: gestureProgress)
-                    }
+                    // No .animation(_:value: notchState) here on purpose: an
+                    // implicit animation would override the transaction from
+                    // vm.open()/close() for this subtree only, so the body and
+                    // the chin/shadow/scale outside it would settle on two
+                    // different springs. One transaction drives everything.
                     .contentShape(Rectangle())
                     .onHover { hovering in
                         handleHover(hovering)
@@ -255,12 +252,14 @@ struct ContentView: View {
         }
         .padding(.bottom, 8)
         .frame(maxWidth: windowSize.width, maxHeight: windowSize.height, alignment: .top)
-        .compositingGroup()
+        // scaleEffect before compositingGroup: the other order flattens to a
+        // bitmap and then scales it, so the pan gesture visibly blurs the text.
         .scaleEffect(
             x: gestureScale,
             y: gestureScale,
             anchor: .top
         )
+        .compositingGroup()
         .animation(.smooth, value: gestureProgress)
         .background(dragDetector)
         // Classic-black pins dark (white content on black). Liquid Glass follows
@@ -425,11 +424,17 @@ struct ContentView: View {
                         StocksView()
                     }
                 }
-                .transition(
-                    .scale(scale: 0.8, anchor: .top)
-                    .combined(with: .opacity)
-                    .animation(.smooth(duration: 0.35))
-                )
+                // Asymmetric on purpose. In: the container opens first, then the
+                // content drops in — one motion, not two competing ones (the old
+                // scale(0.8) resized the text while the notch was still growing).
+                // Out: content is gone in 100ms so the shape never closes
+                // through live text.
+                .transition(.asymmetric(
+                    insertion: .opacity
+                        .combined(with: .offset(y: -10))
+                        .animation(NotchAnimation.contentIn),
+                    removal: .opacity.animation(NotchAnimation.contentOut)
+                ))
                 .zIndex(1)
                 .allowsHitTesting(vm.notchState == .open)
                 .opacity(gestureProgress != 0 ? 1.0 - min(abs(gestureProgress) * 0.1, 0.3) : 1.0)
@@ -619,9 +624,7 @@ struct ContentView: View {
     }
 
     private func doOpen() {
-        withAnimation(animationSpring) {
-            vm.open()
-        }
+        vm.open()  // carries its own animation
     }
 
     private func checkAIAutoClose() {
@@ -650,9 +653,7 @@ struct ContentView: View {
                 if SharingStateManager.shared.preventNotchClose {
                     SharingStateManager.shared.endInteraction()
                 }
-                withAnimation(self.animationSpring) {
-                    self.vm.close()
-                }
+                self.vm.close()
             }
         }
     }
@@ -962,6 +963,11 @@ struct PixelIdleAnimation: View {
         case .dinoRun: DinoRunPixels()
         case .woodenFish: WoodenFishPixels()
         case .crab: CrabPixels()
+        case .ecg: EcgPixels()
+        case .dna: DnaPixels()
+        case .aurora: AuroraPixels()
+        case .dayNight: DayNightPixels()
+        case .sakura: SakuraPixels()
         }
     }
 }
@@ -2421,6 +2427,262 @@ private struct WoodenFishPixels: View {
             }
         }
         floatingTexts = nextTexts
+    }
+}
+
+/// 心电脉搏: a monitor sweep drawing a PQRST trace, the trail dimming behind
+/// the head. Stateless — the sweep position and the whole trail are derived
+/// from the clock, so nothing has to be retained between frames.
+private struct EcgPixels: View {
+    /// One heartbeat over u ∈ [0,1), returned as −1…1.
+    private static func beat(_ u: Double) -> Double {
+        switch u {
+        case ..<0.12: 0
+        case ..<0.20: 0.15 * sin((u - 0.12) / 0.08 * .pi)       // P wave
+        case ..<0.24: 0
+        case ..<0.27: -0.20 * (u - 0.24) / 0.03                 // Q dip
+        case ..<0.31: -0.20 + 1.20 * (u - 0.27) / 0.04          // R spike up
+        case ..<0.35: 1.00 - 1.35 * (u - 0.31) / 0.04           // R down into S
+        case ..<0.38: -0.35 + 0.35 * (u - 0.35) / 0.03          // S recover
+        case ..<0.50: 0
+        case ..<0.62: 0.25 * sin((u - 0.50) / 0.12 * .pi)       // T wave
+        default: 0
+        }
+    }
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.05)) { timeline in
+            Canvas { context, size in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                let mid = size.height / 2
+                let amp = (size.height - 6) / 2
+                let sweep = 3.6                       // seconds for one pass
+                let beats = 3.0                       // heartbeats per pass
+                let head = size.width * (t.truncatingRemainder(dividingBy: sweep) / sweep)
+
+                // Baseline, so the strip never looks empty ahead of the head.
+                context.fill(Path(CGRect(x: 0, y: mid - 0.25, width: size.width, height: 0.5)),
+                             with: .color(.green.opacity(0.12)))
+
+                var x: CGFloat = 0
+                while x < size.width {
+                    // Age = how long ago the sweep passed this column.
+                    let age = (head - x + size.width).truncatingRemainder(dividingBy: size.width)
+                    let fade = 1 - age / size.width
+                    guard fade > 0.02 else { x += 1; continue }
+                    let u = (x / size.width * beats).truncatingRemainder(dividingBy: 1)
+                    let y = mid - Self.beat(Double(u)) * amp
+                    context.fill(Path(CGRect(x: x, y: y - 0.75, width: 1.5, height: 1.5)),
+                                 with: .color(.green.opacity(0.15 + 0.85 * fade * fade)))
+                    x += 1
+                }
+
+                // Bright head, with a soft halo.
+                let u = (head / size.width * beats).truncatingRemainder(dividingBy: 1)
+                let hy = mid - Self.beat(Double(u)) * amp
+                context.fill(Path(ellipseIn: CGRect(x: head - 3, y: hy - 3, width: 6, height: 6)),
+                             with: .color(.green.opacity(0.25)))
+                context.fill(Path(ellipseIn: CGRect(x: head - 1.5, y: hy - 1.5, width: 3, height: 3)),
+                             with: .color(.green))
+            }
+        }
+    }
+}
+
+/// DNA 双螺旋: two strands scrolling through the bar with base-pair rungs.
+/// Depth is faked with dot size and opacity from the phase's cosine, which is
+/// what sells the rotation. Stateless — everything derives from the clock.
+private struct DnaPixels: View {
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.06)) { timeline in
+            Canvas { context, size in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                let mid = size.height / 2
+                let amp = (size.height - 8) / 2
+                let wavelength: CGFloat = 26
+                let phaseAt: (CGFloat) -> Double = { x in Double(x / wavelength) + t * 1.6 }
+
+                // Rungs first, so the strands draw on top of them.
+                var rx: CGFloat = 0
+                while rx < size.width {
+                    let p = phaseAt(rx)
+                    let openness = abs(sin(p))          // edge-on pairs are short
+                    let dy = CGFloat(openness) * amp    // abs: a signed dy gives
+                                                        // a negative-height rect
+                                                        // on the lower half.
+                    context.fill(
+                        Path(CGRect(x: rx - 0.5, y: mid - dy, width: 1, height: dy * 2)),
+                        with: .color(.white.opacity(0.06 + 0.20 * openness))
+                    )
+                    rx += 7
+                }
+
+                var x: CGFloat = 0
+                while x < size.width {
+                    let p = phaseAt(x)
+                    let dy = CGFloat(sin(p)) * amp
+                    let depth = cos(p)                  // +1 = strand A in front
+                    for (offset, color, front) in [(dy, Color.cyan, depth),
+                                                   (-dy, Color.pink, -depth)] {
+                        let r = 1.0 + 0.7 * (front + 1) / 2
+                        context.fill(
+                            Path(ellipseIn: CGRect(x: x - r, y: mid + offset - r,
+                                                   width: r * 2, height: r * 2)),
+                            with: .color(color.opacity(0.35 + 0.55 * (front + 1) / 2))
+                        )
+                    }
+                    x += 2
+                }
+            }
+        }
+    }
+}
+
+/// 极光流带: no sprite at all — three soft light bands drifting across the bar
+/// at different speeds, hues rotating slowly. The quiet option for people who
+/// find a marching invader distracting. Stateless.
+private struct AuroraPixels: View {
+    // (speed, width, hue base, hue drift)
+    private static let bands: [(Double, Double, Double, Double)] = [
+        (0.13, 0.30, 0.50, 0.05),
+        (-0.09, 0.22, 0.78, 0.07),
+        (0.19, 0.16, 0.36, 0.04),
+    ]
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.1)) { timeline in
+            Canvas { context, size in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                let step: CGFloat = 2
+
+                for (speed, spread, hueBase, hueDrift) in Self.bands {
+                    // Centre eases back and forth instead of wrapping, so a band
+                    // never pops from one edge to the other.
+                    let phase = sin(t * speed * .pi)
+                    let centre = size.width * CGFloat(0.5 + 0.42 * phase)
+                    let sigma = size.width * CGFloat(spread)
+                    let hue = (hueBase + hueDrift * sin(t * 0.07)).truncatingRemainder(dividingBy: 1)
+
+                    var x: CGFloat = 0
+                    while x < size.width {
+                        let d = Double((x - centre) / sigma)
+                        let intensity = exp(-d * d)
+                        if intensity > 0.02 {
+                            context.fill(
+                                Path(CGRect(x: x, y: 0, width: step, height: size.height)),
+                                with: .color(Color(hue: hue, saturation: 0.75, brightness: 1,
+                                                   opacity: 0.30 * intensity))
+                            )
+                        }
+                        x += step
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 日月轮转: the sun arcs across by day, the moon by night, stars fading in
+/// after dusk — driven by the *real* time of day, so a glance at the bar tells
+/// you roughly where you are in the day. The cheapest style here (1s ticks).
+private struct DayNightPixels: View {
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1)) { timeline in
+            Canvas { context, size in
+                let date = timeline.date
+                let day = date.timeIntervalSince(Calendar.current.startOfDay(for: date)) / 86400
+                let isDay = day >= 0.25 && day < 0.75            // 06:00–18:00
+                // 0…1 across the sky for whichever body is up.
+                let p = isDay ? (day - 0.25) / 0.5
+                              : (day < 0.25 ? day + 0.25 : day - 0.75) / 0.5
+                let t = date.timeIntervalSinceReferenceDate
+
+                // Night sky + stars, faded by how deep into the night we are.
+                let night = 1 - min(1, abs(day - 0.5) * 4)       // 0 at noon, 1 past dusk
+                let starness = 1 - night
+                if starness > 0.05 {
+                    for i in 0..<14 {
+                        let seed = UInt32(truncatingIfNeeded: i &* 2654435761)
+                        let sx = CGFloat(seed % 997) / 997 * size.width
+                        let sy = CGFloat((seed / 997) % 331) / 331 * size.height * 0.7
+                        let tw = 0.5 + 0.5 * sin(t * 1.4 + Double(i))
+                        context.fill(Path(CGRect(x: sx, y: sy, width: 1.5, height: 1.5)),
+                                     with: .color(.white.opacity(0.15 + 0.45 * tw * starness)))
+                    }
+                }
+
+                // Horizon.
+                context.fill(Path(CGRect(x: 0, y: size.height - 2, width: size.width, height: 0.75)),
+                             with: .color(.white.opacity(0.10 + 0.15 * night)))
+
+                // The body itself, on a shallow arc.
+                let r: CGFloat = isDay ? 5 : 4.5
+                let x = size.width * CGFloat(p)
+                let y = size.height - 4 - CGFloat(sin(p * .pi)) * (size.height - 12)
+                let box = CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)
+
+                if isDay {
+                    context.fill(Path(ellipseIn: box.insetBy(dx: -4, dy: -4)),
+                                 with: .color(.orange.opacity(0.18)))
+                    context.fill(Path(ellipseIn: box), with: .color(.yellow))
+                } else {
+                    context.fill(Path(ellipseIn: box.insetBy(dx: -3, dy: -3)),
+                                 with: .color(.white.opacity(0.10)))
+                    context.fill(Path(ellipseIn: box), with: .color(.white.opacity(0.85)))
+                    // Crescent: punch a hole with the background colour.
+                    context.blendMode = .destinationOut
+                    context.fill(Path(ellipseIn: box.offsetBy(dx: r * 0.55, dy: -r * 0.2)),
+                                 with: .color(.black))
+                    context.blendMode = .normal
+                }
+            }
+        }
+    }
+}
+
+/// 樱花飘落: petals drifting down with a sideways sway. The flutter is faked by
+/// oscillating each petal's height rather than rotating the context — same read,
+/// a fraction of the cost. Stateless: every petal is a function of index + clock.
+private struct SakuraPixels: View {
+    private static let palette: [Color] = [
+        Color(red: 1.00, green: 0.72, blue: 0.80),
+        Color(red: 1.00, green: 0.85, blue: 0.89),
+        Color(red: 0.98, green: 0.60, blue: 0.72),
+        .white,
+    ]
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.06)) { timeline in
+            Canvas { context, size in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                let count = max(6, Int(size.width / 14))
+
+                for i in 0..<count {
+                    let seed = UInt32(truncatingIfNeeded: i &* 73856093 ^ 19349663)
+                    let h = Double(seed % 1000) / 1000
+                    let fall = 0.10 + h * 0.16                  // screens per second
+                    let phase = h * 7
+
+                    // Wrap through a band slightly taller than the bar so petals
+                    // enter and leave off-screen instead of popping.
+                    let prog = (t * fall + phase).truncatingRemainder(dividingBy: 1)
+                    let y = CGFloat(prog) * (size.height + 10) - 5
+                    let drift = CGFloat(sin(t * (0.5 + h) + phase)) * 9
+                    let x = (CGFloat(h) * size.width + drift + size.width)
+                        .truncatingRemainder(dividingBy: size.width)
+
+                    // Flutter: the petal turns edge-on twice per spin.
+                    let flutter = abs(sin(t * (1.4 + h * 1.2) + phase))
+                    let w: CGFloat = 3.4
+                    let ph = 0.8 + 2.0 * CGFloat(flutter)
+                    let color = Self.palette[Int(seed % UInt32(Self.palette.count))]
+                    context.fill(
+                        Path(ellipseIn: CGRect(x: x - w / 2, y: y - ph / 2, width: w, height: ph)),
+                        with: .color(color.opacity(0.45 + 0.45 * flutter))
+                    )
+                }
+            }
+        }
     }
 }
 

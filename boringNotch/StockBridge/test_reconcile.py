@@ -13,8 +13,9 @@ sb = importlib.util.module_from_spec(spec)
 sys.modules["sb"] = sb
 spec.loader.exec_module(sb)
 
-# HK codes: this account can subscribe these. A-share indices now route to the
-# Tencent fallback (no OpenD subscription), covered at the bottom.
+# HK codes: this account can subscribe these. SH./SZ. securities use the same
+# OpenD subscription/reconcile path.
+sb._is_open = lambda code, now=None: True   # run the test outside HK hours too
 A, B = "HK.00700", "HK.01810"
 assert sb._watch([A, B]), sb.LAST_ERROR
 live = sb._live_subs()
@@ -30,6 +31,7 @@ assert A in sb.WATCHED
 C = "HK.09988"
 with sb.LOCK:
     sb.WATCHED.add(C)
+    sb.ACTIVE.add(C)
 assert C not in (sb._live_subs() or set())
 
 # what the loop body does each tick

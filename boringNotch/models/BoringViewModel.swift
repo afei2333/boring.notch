@@ -206,8 +206,12 @@ class BoringViewModel: NSObject, ObservableObject {
     }
 
     func open() {
-        self.notchSize = CGSize(width: openNotchSize.width, height: notchOpenHeight(for: coordinator.currentView))
-        self.notchState = .open
+        // The animation lives here, not at the call sites: hover, tap, pan,
+        // drop and the app-level openers all land on this one function.
+        withAnimation(NotchAnimation.open) {
+            self.notchSize = CGSize(width: openNotchSize.width, height: notchOpenHeight(for: coordinator.currentView))
+            self.notchState = .open
+        }
 
         // Force music information update when notch is opened
         MusicManager.shared.forceUpdate()
@@ -228,12 +232,14 @@ class BoringViewModel: NSObject, ObservableObject {
         if SharingStateManager.shared.preventNotchClose {
             return
         }
-        self.notchSize = getClosedNotchSize(screenUUID: self.screenUUID)
-        self.closedNotchSize = self.notchSize
-        self.notchState = .closed
-        self.isBatteryPopoverActive = false
-        self.coordinator.sneakPeek.show = false
-        self.edgeAutoOpenActive = false
+        withAnimation(NotchAnimation.close) {
+            self.notchSize = getClosedNotchSize(screenUUID: self.screenUUID)
+            self.closedNotchSize = self.notchSize
+            self.notchState = .closed
+            self.isBatteryPopoverActive = false
+            self.coordinator.sneakPeek.show = false
+            self.edgeAutoOpenActive = false
+        }
 
         // Decide which tab the next open should show.
         // "Remember last tab" takes precedence: when it's on we keep the current

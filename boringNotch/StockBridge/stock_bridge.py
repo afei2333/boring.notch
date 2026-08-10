@@ -25,24 +25,28 @@ import subprocess
 import threading
 import time as _time
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 from zoneinfo import ZoneInfo
 
 LOCK = threading.Lock()
+CACHE_WRITE_LOCK = threading.Lock()
 QUOTES = {}       # code -> merged quote dict (snapshot + pushes)
 RT = {}           # code -> {"date": "YYYY-MM-DD", "points": [{"t": "HH:MM", "p": price}]}
 EXT_RT = {}       # code -> {"key": "date|session", "points": [...]} sampled pre/after prices
 WATCHED = set()
+ACTIVE = set()     # currently subscribed/fetched subset selected by market session
 PULL_ONLY = set()  # no subscribe rights but futu snapshots work — 60s pulls only
-FALLBACK = set()   # OpenD refuses entirely (A股指数/日韩指数) — public quote APIs
+FALLBACK = set()   # markets OpenD does not support (日韩) — public quote APIs
 LAST_ERROR = None
 CTX = None
 FT = None
 OPEND_HOST = "127.0.0.1"
 OPEND_PORT = 11111
 MAX_RT_POINTS = 150
+QUOTE_CACHE = os.path.expanduser(
+    "~/Library/Caches/theboringteam.boringnotch.stock-quotes.json")
 
 
 def _set_error(msg):
@@ -165,17 +169,76 @@ def _append_ext_rt(code, row):
         pts.append({"t": hhmm, "p": price})
 
 
+EXT_PRIMED = set()   # (code, "date|session") already backfilled from yahoo
+
+
+def _ext_backfill(code, session, key):
+    """Fill EXT_RT from yahoo's pre/post 1-min bars so the 时分图 spans the whole
+    session — the local sampler only sees prices from bridge start onwards, which
+    drew the line as a sliver at the current minute instead of a full line."""
+    lo, hi = EXT_WINDOW[session]
+    try:
+        res = _curl_json("https://query1.finance.yahoo.com/v8/finance/chart/"
+                         + code.split(".", 1)[1]
+                         + "?interval=1m&range=1d&includePrePost=true")["chart"]["result"][0]
+    except (OSError, ValueError, KeyError, IndexError, TypeError,
+            subprocess.SubprocessError):
+        return False  # the local sampler still fills the line, just from now on
+    quote = (res.get("indicators", {}).get("quote") or [{}])[0]
+    tz = ZoneInfo("America/New_York")
+    line = []
+    for t, c in zip(res.get("timestamp") or [], quote.get("close") or []):
+        if not isinstance(c, (int, float)) or not math.isfinite(c) or c <= 0:
+            continue
+        stamp = datetime.fromtimestamp(t, tz)
+        if stamp.date().isoformat() != key.split("|", 1)[0]:
+            continue
+        minutes = stamp.hour * 60 + stamp.minute
+        if lo <= minutes < hi:
+            line.append({"t": stamp.strftime("%H:%M"), "p": float(c)})
+    if not line:
+        return False
+    with LOCK:
+        entry = EXT_RT.setdefault(code, {"key": key, "points": []})
+        if entry["key"] != key:
+            entry["key"], entry["points"] = key, []
+        seen = {p["t"] for p in entry["points"]}
+        entry["points"] = sorted(entry["points"] + [p for p in line if p["t"] not in seen],
+                                 key=lambda p: p["t"])
+    return True
+
+
+def _ext_prime(codes):
+    """Backfill each US code's ext line once per session, off-thread — callers
+    include HTTP handlers and none of them should block on curl."""
+    session = _ext_session()
+    if not session:
+        return
+    key = f"{datetime.now(ZoneInfo('America/New_York')).date()}|{session}"
+    todo = [c for c in codes if c.startswith("US.") and (c, key) not in EXT_PRIMED]
+    if not todo:
+        return
+    EXT_PRIMED.update((c, key) for c in todo)  # claim before running: no dupes
+
+    def run():
+        for code in todo:
+            if not _ext_backfill(code, session, key):
+                EXT_PRIMED.discard((code, key))  # transient — retry next poll
+        _save_quote_cache()
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+EXT_WINDOW = {"pre": (4 * 60, 9 * 60 + 30), "after": (16 * 60, 20 * 60)}
+
+
 def _ext_session():
     """'pre' 4:00-9:30, 'after' 16:00-20:00 NY time on weekdays, else None."""
     now = datetime.now(ZoneInfo("America/New_York"))
     if now.weekday() >= 5:
         return None
     minutes = now.hour * 60 + now.minute
-    if 4 * 60 <= minutes < 9 * 60 + 30:
-        return "pre"
-    if 16 * 60 <= minutes < 20 * 60:
-        return "after"
-    return None
+    return next((s for s, (lo, hi) in EXT_WINDOW.items() if lo <= minutes < hi), None)
 
 
 def _ext(q):
@@ -194,14 +257,16 @@ def _ext(q):
 
 
 def _fetch_snapshot(codes):
-    """Route each code to its working source (futu / Tencent / sina), so every
+    """Route each code to its working source (OpenD / international fallback), so every
     caller — /snapshot, the 60s loop, _subscribe — handles all of them."""
     with LOCK:
-        fb_intl = [c for c in codes if c in FALLBACK and c in INTL_IDS]
-        fb_tc = [c for c in codes if c in FALLBACK and c not in INTL_IDS]
+        fb = [c for c in codes if c in FALLBACK]
         futu = [c for c in codes if c not in FALLBACK]
-    ok = _tencent_fetch(fb_tc) if fb_tc else True
-    ok = (_intl_fetch(fb_intl) if fb_intl else True) and ok
+    fb_intl = [c for c in fb if c in INTL_IDS]
+    fb_yh = [c for c in fb if c in YAHOO_STOCKS]
+    ok = _intl_fetch(fb_intl) if fb_intl else True
+    ok = (_yahoo_fetch(fb_yh) if fb_yh else True) and ok
+    _ext_prime(codes)
     return (_futu_snapshot(futu) if futu else True) and ok
 
 
@@ -224,78 +289,26 @@ def _futu_snapshot(codes):
     return True
 
 
-def _tencent_fetch(codes):
-    """Free public quote API for SH./SZ. codes OpenD has no rights to (A股指数
-    需要行情权限，腾讯接口不需要). Fields are '~'-separated, GBK, per docs of
-    qt.gtimg.cn: 1 name, 2 bare code, 3 cur, 4 prev close, 5 open, 6 vol(手),
-    30 time YYYYMMDDHHMMSS, 33 high, 34 low, 37 turnover(万)."""
-    q = ",".join(c.replace(".", "").lower() for c in codes)  # SH.000001 -> sh000001
-    try:
-        with urllib.request.urlopen(f"https://qt.gtimg.cn/q={q}", timeout=5) as r:
-            raw = r.read().decode("gbk", "replace")
-    except OSError as e:
-        _set_error(f"A股指数备用行情源不可用: {e}")
-        return False
-    got = False
-    with LOCK:
-        for chunk in raw.split(";"):
-            var, sep, val = chunk.partition("=")
-            f = val.strip().strip('"').split("~")
-            if not sep or len(f) < 38 or not f[3]:
-                continue
-
-            def g(i, scale=1.0):
-                try:
-                    v = float(f[i]) * scale
-                except ValueError:
-                    return None
-                return v if math.isfinite(v) else None
-
-            code = f"{var.strip()[-8:-6].upper()}.{f[2]}"
-            t = f[30]
-            ts = (f"{t[:4]}-{t[4:6]}-{t[6:8]} {t[8:10]}:{t[10:12]}:{t[12:14]}"
-                  if len(t) >= 14 else None)
-            _merge_quote(code, name=f[1], cur=g(3), lastClose=g(4), open=g(5),
-                         volume=g(6, 100), high=g(33), low=g(34),
-                         turnover=g(37, 1e4), time=ts)
-            if ts:
-                _append_rt(code, ts, g(3))
-            got = True
-    if got:
-        _set_error(None)
-    return got
-
-
-def _tencent_prime(code):
-    """Backfill today's minute line so the sparkline is full on first load."""
-    sym = code.replace(".", "").lower()
-    url = f"https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={sym}"
-    try:
-        with urllib.request.urlopen(url, timeout=5) as r:
-            d = json.load(r)["data"][sym]["data"]
-        day = f"{d['date'][:4]}-{d['date'][4:6]}-{d['date'][6:8]}"
-        with LOCK:
-            RT.pop(code, None)
-            for line in d["data"]:
-                parts = line.split()
-                if len(parts) >= 2:
-                    _append_rt(code, f"{day} {parts[0][:2]}:{parts[0][2:4]}",
-                               float(parts[1]))
-    except Exception:
-        pass  # sparkline fills from the 60s ticks instead
-
-
 # 日韩指数: futu has no JP/KR indices at all, Tencent no codes for them either.
 # Quotes come from sina 国际指数 (reliable); eastmoney only backfills the
 # minute line (its LB randomly drops connections — fine for a one-shot prime).
 INTL_IDS = {"JP.N225": ("znb_NKY", "100.N225"), "KR.KOSPI": ("znb_KOSPI", "100.KS11")}
 
+# 韩股个股: futu has no KR market, 腾讯's kr* feed is frozen (its timestamp
+# stops advancing mid-session) and 东财 push2 rate-limits the whole domain after
+# a few polls. Yahoo's chart endpoint is stable and returns the quote AND the
+# full intraday line in one call — 20min delayed, the norm for free KRX data.
+# Value is (yahoo symbol, 中文名 — yahoo only knows the English one).
+YAHOO_STOCKS = {"KR.005930": ("005930.KS", "三星电子"),
+                "KR.000660": ("000660.KS", "SK海力士")}
 
-def _em_json(url, retries=3):
-    """eastmoney via curl: their CDN fingerprint-blocks python's TLS, and any
-    client gets connections randomly dropped — curl + retries rides it out."""
+
+def _curl_json(url, retries=3):
+    """GET json via curl: eastmoney's CDN fingerprint-blocks python's TLS, and
+    both it and yahoo drop connections at random — curl + retries rides it out.
+    The UA is for yahoo, which 429s anything without one."""
     for i in range(retries):
-        p = subprocess.run(["curl", "-s", "--max-time", "5", url],
+        p = subprocess.run(["curl", "-s", "--max-time", "5", "-A", "Mozilla/5.0", url],
                            capture_output=True)
         if p.returncode == 0:
             try:
@@ -350,6 +363,81 @@ def _intl_fetch(codes):
     return got
 
 
+def _yahoo_fetch(codes):
+    """韩股 quote + whole intraday line from one chart call. Timestamps are
+    converted to 北京时间 like every other source here, so the app has a single
+    session-segment rule per market. Yahoo 429s requests without a UA.
+
+    Returns True when every code ends up with a quote — a fresh one, or the
+    cached one when this round's request failed."""
+    got, ok = False, True
+    for code in codes:
+        url = ("https://query1.finance.yahoo.com/v8/finance/chart/"
+               + YAHOO_STOCKS[code][0] + "?interval=1m&range=1d")
+        try:
+            res = _curl_json(url)["chart"]["result"][0]
+            m = res["meta"]
+        except (OSError, ValueError, KeyError, IndexError, TypeError,
+                subprocess.SubprocessError) as e:
+            # a tick we already have beats an error banner — only complain
+            # when there is nothing cached to show.
+            if code not in QUOTES:
+                _set_error(f"韩股行情源不可用: {e}")
+                ok = False
+            continue
+
+        def q(key):
+            v = m.get(key)
+            return v if isinstance(v, (int, float)) and math.isfinite(v) else None
+
+        # Yahoo intermittently serves a stale quote (often 昨收) as
+        # regularMarketPrice *and* overwrites the last minute bar with it — that
+        # drew a cliff at the right edge of the 时分图. A traded price can never
+        # sit outside the session's own range, so that is the whole filter.
+        lo, hi = q("regularMarketDayLow"), q("regularMarketDayHigh")
+
+        def sane(p):
+            if not isinstance(p, (int, float)) or not math.isfinite(p) or p <= 0:
+                return None
+            if lo is not None and hi is not None and not lo <= p <= hi:
+                return None
+            return float(p)
+
+        quote = (res.get("indicators", {}).get("quote") or [{}])[0]
+        stamps = res.get("timestamp") or []
+        line = []
+        for t, c in zip(stamps, quote.get("close") or []):
+            p = sane(c)
+            if p is not None:
+                line.append((t, p))
+
+        cur, ts = sane(q("regularMarketPrice")), q("regularMarketTime")
+        if cur is None and line:            # stale meta quote — trust the line
+            cur, ts = line[-1][1], line[-1][0]
+        if cur is None:
+            if code not in QUOTES:
+                _set_error("韩股行情源返回异常报价")
+                ok = False
+            continue
+
+        tz = ZoneInfo("Asia/Shanghai")
+        with LOCK:
+            _merge_quote(code, name=YAHOO_STOCKS[code][1], cur=cur,
+                         lastClose=q("chartPreviousClose") or q("previousClose"),
+                         open=next((float(o) for o in (quote.get("open") or []) if o), None),
+                         high=hi, low=lo, volume=q("regularMarketVolume"),
+                         time=datetime.fromtimestamp(ts, tz)
+                             .strftime("%Y-%m-%d %H:%M:%S") if ts else None)
+            RT.pop(code, None)  # the chart is the whole line — rebuild, don't merge
+            for t, p in line:
+                _append_rt(code, datetime.fromtimestamp(t, tz)
+                           .strftime("%Y-%m-%d %H:%M"), p)
+        got = True
+    if got and ok:  # a partial round must not clear the failing code's error
+        _set_error(None)
+    return ok
+
+
 def _eastmoney_prime(code):
     """Backfill today's minute line (Beijing-time timestamps)."""
     secid = INTL_IDS.get(code, (None, None))[1]
@@ -358,7 +446,7 @@ def _eastmoney_prime(code):
     url = ("https://push2his.eastmoney.com/api/qt/stock/trends2/get?secid=" + secid
            + "&fields1=f1&fields2=f51,f53&ndays=1&iscr=0")
     try:
-        rows = (_em_json(url).get("data") or {}).get("trends") or []
+        rows = (_curl_json(url).get("data") or {}).get("trends") or []
     except (OSError, ValueError, subprocess.SubprocessError):
         return  # sparkline fills from the 60s ticks instead
     try:
@@ -375,12 +463,15 @@ def _eastmoney_prime(code):
 def _prime_rt_history(codes):
     """Backfill the timeshare so sparklines are full on first load. Off-hours
     get_rt_data returns nothing, so fall back to the latest session's 1-min
-    klines (subscription-based, no monthly quota). One code per call,
-    throttled to stay under the 10/30s frequency limit."""
+    klines (subscription-based, no monthly quota). OpenD allows 10 calls per
+    30 seconds, so fill each batch immediately instead of delaying every symbol;
+    otherwise later cards stay at one point and render as an empty chart."""
     qc = _ctx()
     if qc is None:
         return
-    for code in codes:
+    for index, code in enumerate(codes):
+        if index and index % 10 == 0:
+            _time.sleep(30)
         filled = False
         ret, data = qc.get_rt_data(code)
         if ret == FT.RET_OK:
@@ -404,7 +495,7 @@ def _prime_rt_history(codes):
                         close = _f(row, "close")
                         if time_key[:10] == last_date and close:
                             _append_rt(code, time_key, close)
-        _time.sleep(3.5)
+    _save_quote_cache()
 
 
 SUB_TYPES = ["QUOTE", "RT_DATA", "K_1M"]  # names — FT is imported lazily
@@ -419,13 +510,19 @@ def _subscribe(codes):
         return False
     ok, errors = [], []
     for code in codes:
-        if code in INTL_IDS:  # futu can't know these — straight to fallback
-            if _intl_fetch([code]):
-                with LOCK:
-                    FALLBACK.add(code)
+        if code in INTL_IDS or code in YAHOO_STOCKS:  # futu can't know these
+            if code in YAHOO_STOCKS:  # chart call already carries the whole line
+                got = _yahoo_fetch([code])
+            elif _intl_fetch([code]):
+                got = True
                 threading.Thread(target=_eastmoney_prime, args=(code,), daemon=True).start()
             else:
-                errors.append(f"{code}: 日韩指数行情源不可用")
+                got = False
+            if got:
+                with LOCK:
+                    FALLBACK.add(code)
+            else:
+                errors.append(f"{code}: 日韩行情源不可用")
             continue
         ret, err = qc.subscribe([code], [getattr(FT.SubType, t) for t in SUB_TYPES])
         if ret != FT.RET_OK:
@@ -441,12 +538,6 @@ def _subscribe(codes):
             # No subscribe rights but snapshot pulls work — 60s pull-only.
             with LOCK:
                 PULL_ONLY.add(code)
-        elif code[:3] in ("SH.", "SZ.") and _tencent_fetch([code]):
-            # OpenD refuses A-share indices entirely without 指数行情权限;
-            # Tencent's public endpoint doesn't need one.
-            with LOCK:
-                FALLBACK.add(code)
-            threading.Thread(target=_tencent_prime, args=(code,), daemon=True).start()
         else:
             errors.append(f"{code}: {err}")
     if ok:
@@ -458,27 +549,104 @@ def _subscribe(codes):
     return not errors
 
 
-def _watch(symbols):
-    """/watch always posts the whole watchlist, so it is the desired set, not a
-    delta: WATCHED tracks what the app wants (even if subscribing fails — the
-    reconcile in _snapshot_loop retries), and codes the user removed are
-    unsubscribed because each one holds 3 of OpenD's 100 subscription slots."""
+# Exchange-local trading windows, with a tail buffer so the closing auction's
+# final print still lands before the slot goes back.
+MARKET_HOURS = {
+    "US": ("America/New_York", 4 * 60, 20 * 60),        # 盘前 04:00 – 盘后 20:00
+    "HK": ("Asia/Hong_Kong", 9 * 60 + 15, 16 * 60 + 15),
+    "SH": ("Asia/Shanghai", 9 * 60 + 15, 15 * 60 + 5),
+    "SZ": ("Asia/Shanghai", 9 * 60 + 15, 15 * 60 + 5),
+}
+
+
+def _is_open(code, now=None):
+    """True while the code's exchange is in session. Anything closed stops being
+    ACTIVE, so its OpenD slot is released instead of idling until the next
+    session. ponytail: holidays ignored — one idle slot for the day is harmless."""
+    hours = MARKET_HOURS.get(code.split(".", 1)[0])
+    if hours is None:
+        return True   # 日韩 fallback codes hold no OpenD subscription anyway
+    tz, start, end = hours
+    t = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo(tz))
+    return t.weekday() < 5 and start <= t.hour * 60 + t.minute < end
+
+
+def _is_external(code):
+    return code in INTL_IDS or code in YAHOO_STOCKS
+
+
+def _desired_active_codes():
+    with LOCK:
+        watched = set(WATCHED)
+    return {c for c in watched if _is_external(c) or _is_open(c)}
+
+
+def _sync_active_watchlist():
+    """Release the inactive market's OpenD slots and activate the current one."""
     qc = _ctx()
     if qc is None:
         return False
+    desired = _desired_active_codes()
     with LOCK:
-        new = [s for s in symbols if s not in WATCHED]
+        previous = set(ACTIVE)
+        ACTIVE.clear()
+        ACTIVE.update(desired)
+        PULL_ONLY.intersection_update(desired)
+        FALLBACK.intersection_update(desired)
+    dropped = sorted(c for c in previous - desired if not _is_external(c))
+    if dropped:
+        # Capture the final push before releasing the closing market's slots.
+        _save_quote_cache()
+        qc.unsubscribe(dropped, [getattr(FT.SubType, t) for t in SUB_TYPES])
+    new = sorted(desired - previous)
+    if new:
+        return _subscribe(new)
+    _set_error(None)
+    return True
+
+
+def _watch(symbols):
+    """/watch always posts the whole watchlist, so it is the desired set, not a
+    delta. WATCHED keeps every symbol while ACTIVE contains only the market group
+    selected for the current session."""
+    with LOCK:
         dropped = [s for s in WATCHED if s not in symbols]
         WATCHED.clear()
         WATCHED.update(symbols)
-        PULL_ONLY.intersection_update(symbols)
-        FALLBACK.intersection_update(symbols)
-    if dropped:
-        qc.unsubscribe(dropped, [getattr(FT.SubType, t) for t in SUB_TYPES])
-    if not new:
-        _set_error(None)  # nothing pending — don't let an old bad-code error linger
+        for code in dropped:
+            QUOTES.pop(code, None)
+            RT.pop(code, None)
+            EXT_RT.pop(code, None)
+    ok = _sync_active_watchlist()
+    _save_quote_cache()
+    return ok
+
+
+def _refresh(codes):
+    """One-shot pull for a market the current session doesn't keep subscribed —
+    its cards would otherwise show whatever the cache last saw (possibly days
+    old). Snapshots need no subscription; the 时分图 does, so subscribe those
+    codes just long enough to backfill it and hand the slots straight back."""
+    with LOCK:
+        codes = [c for c in codes if c in WATCHED]
+        # Closed codes count as temp even while ACTIVE still lists them (up to
+        # 60s after the close), so a refresh always hands their slot back.
+        temp = [c for c in codes if not _is_external(c)
+                and (c not in ACTIVE or not _is_open(c))]
+    if not codes:
         return True
-    return _subscribe(new)
+    ok = _fetch_snapshot(codes)
+    qc = _ctx() if temp else None
+    if qc is not None:
+        subs = [getattr(FT.SubType, t) for t in SUB_TYPES]
+        ret, _err = qc.subscribe(temp, subs)
+        if ret == FT.RET_OK:
+            try:
+                _prime_rt_history(temp)   # sync: the unsubscribe must come after
+            finally:
+                qc.unsubscribe(temp, subs)
+    _save_quote_cache()
+    return ok
 
 
 # Symbol search: full code+name universe per (market, type), loaded lazily on
@@ -533,11 +701,16 @@ def _load_basicinfo():
             pass
 
 
-# Indices aren't in get_stock_basicinfo's universe — searchable by hand.
-STATIC_INDEXES = [
+# Indices and 日韩 codes aren't in get_stock_basicinfo's universe (futu has no
+# JP/KR market at all) — searchable by hand.
+STATIC_SYMBOLS = [
     {"symbol": "SH.000001", "name": "上证指数"},
     {"symbol": "SZ.399001", "name": "深证成指"},
     {"symbol": "SZ.399006", "name": "创业板指"},
+    {"symbol": "JP.N225", "name": "日经225"},
+    {"symbol": "KR.KOSPI", "name": "韩国综合指数"},
+    {"symbol": "KR.005930", "name": "三星电子"},
+    {"symbol": "KR.000660", "name": "SK海力士"},
 ]
 
 
@@ -549,7 +722,7 @@ def _search_payload(q):
     ql = q.strip().upper()
     exact, prefix, contains = [], [], []
     if ql:
-        for r in STATIC_INDEXES:
+        for r in STATIC_SYMBOLS:
             bare = r["symbol"].split(".", 1)[-1]
             if ql in r["symbol"] or ql in r["name"].upper() or bare.startswith(ql):
                 exact.append(r)
@@ -580,6 +753,40 @@ def _downsample(points, limit=120):
     return [points[round(i * step)] for i in range(limit)]
 
 
+def _load_quote_cache():
+    """Restore last-session data so the inactive market is visible on startup."""
+    try:
+        with open(QUOTE_CACHE) as f:
+            cached = json.load(f)
+        quotes = cached.get("quotes", {})
+        rt = cached.get("rt", {})
+        ext_rt = cached.get("ext_rt", {})
+        if not all(isinstance(v, dict) for v in (quotes, rt, ext_rt)):
+            return
+        with LOCK:
+            QUOTES.update(quotes)
+            RT.update(rt)
+            EXT_RT.update(ext_rt)
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
+def _save_quote_cache():
+    """Atomically persist quotes and charts; active-session data overwrites stale data."""
+    tmp = f"{QUOTE_CACHE}.{os.getpid()}.tmp"
+    try:
+        with CACHE_WRITE_LOCK:
+            with LOCK:
+                payload = {"quotes": dict(QUOTES), "rt": dict(RT),
+                           "ext_rt": dict(EXT_RT)}
+            os.makedirs(os.path.dirname(QUOTE_CACHE), exist_ok=True)
+            with open(tmp, "w") as f:
+                json.dump(payload, f, allow_nan=False)
+            os.replace(tmp, QUOTE_CACHE)
+    except (OSError, ValueError):
+        pass
+
+
 def _get_clean_rt(entry):
     if not entry or not entry["points"]:
         return []
@@ -593,19 +800,29 @@ def _get_clean_rt(entry):
     return _downsample(deduped)
 
 
+def _attach_rt(q):
+    """Set `ext` + `rt` so both describe the SAME session (caller holds LOCK).
+    The sparkline maps x onto the ext-session window whenever `ext` is set, so
+    shipping regular-session points there clamps the whole line to the right edge."""
+    q["ext"] = _ext(q)
+    code = q.get("symbol")
+    if not q["ext"]:
+        q["rt"] = _get_clean_rt(RT.get(code))
+        return q
+    entry = EXT_RT.get(code) or {}
+    key = f"{datetime.now(ZoneInfo('America/New_York')).date()}|{_ext_session()}"
+    # cached points from a past session would render against the wrong x axis
+    q["rt"] = _downsample(list(entry["points"])) if entry.get("key") == key else []
+    return q
+
+
 def _quotes_payload():
     with LOCK:
         quotes = []
         for code, q in QUOTES.items():
-            out = dict(q)
-            entry = RT.get(code)
-            out["rt"] = _get_clean_rt(entry)
-            out["ext"] = _ext(out)
-            if out["ext"]:
-                ext_pts = EXT_RT.get(code, {}).get("points", [])
-                if len(ext_pts) >= 2:
-                    out["rt"] = _downsample(list(ext_pts))
-            quotes.append(out)
+            if code not in WATCHED:
+                continue
+            quotes.append(_attach_rt(dict(q)))
     return {"ok": LAST_ERROR is None, "error": LAST_ERROR, "quotes": quotes}
 
 
@@ -674,22 +891,19 @@ class Handler(BaseHTTPRequestHandler):
             if not symbol:
                 self._json({"ok": False, "error": "missing symbol"}, 400)
                 return
-            _fetch_snapshot([symbol])
             with LOCK:
-                q = dict(QUOTES.get(symbol, {"symbol": symbol}))
-                entry = RT.get(symbol)
-                q["rt"] = _get_clean_rt(entry)
-                q["ext"] = _ext(q)
-                if q["ext"]:
-                    ext_pts = EXT_RT.get(symbol, {}).get("points", [])
-                    if len(ext_pts) >= 2:
-                        q["rt"] = _downsample(list(ext_pts))
+                active = symbol in ACTIVE
+            if active:
+                _fetch_snapshot([symbol])
+            with LOCK:
+                q = _attach_rt(dict(QUOTES.get(symbol, {"symbol": symbol})))
             self._json({"ok": LAST_ERROR is None, "error": LAST_ERROR, "quote": q})
         else:
             self._json({"ok": False, "error": "not found"}, 404)
 
     def do_POST(self):
-        if urlparse(self.path).path != "/watch":
+        path = urlparse(self.path).path
+        if path not in ("/watch", "/refresh"):
             self._json({"ok": False, "error": "not found"}, 404)
             return
         length = int(self.headers.get("Content-Length") or 0)
@@ -699,7 +913,7 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, AttributeError):
             self._json({"ok": False, "error": "bad json"}, 400)
             return
-        ok = _watch(symbols) if symbols else True
+        ok = _watch(symbols) if path == "/watch" else _refresh(symbols)
         self._json({"ok": ok, "error": LAST_ERROR})
 
 
@@ -745,11 +959,13 @@ def _live_subs():
 def _snapshot_loop():
     """Refresh snapshots every 60s: keeps ext-session prices, volume and 52w
     fresh even when OpenD sends no pushes (one batched call, quota 10/30s).
-    Also re-subscribes anything OpenD no longer has, plus stale timeshares."""
+    Switches the active market group, then re-subscribes anything OpenD no
+    longer has, plus stale timeshares."""
     while True:
         _time.sleep(60)
+        _sync_active_watchlist()
         with LOCK:
-            codes = sorted(WATCHED)
+            codes = sorted(ACTIVE)
         if not codes:
             continue
         _fetch_snapshot(codes)
@@ -760,6 +976,7 @@ def _snapshot_loop():
                            or _rt_is_stale(c, QUOTES.get(c) or {}))]
         if broken:
             _subscribe(broken)  # resubscribe + re-prime the timeshare
+        _save_quote_cache()
 
 
 def main():
@@ -770,6 +987,7 @@ def main():
     args = parser.parse_args()
     OPEND_HOST, OPEND_PORT = args.opend_host, args.opend_port
 
+    _load_quote_cache()
     threading.Thread(target=_snapshot_loop, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     print(f"listening on http://127.0.0.1:{server.server_address[1]}", flush=True)

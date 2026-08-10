@@ -181,6 +181,9 @@ final class StockManager: ObservableObject {
     // oscillating around an already-fired rung never re-alerts (no 跌1%→回升→
     // 再跌1% spam); the next alert needs one more full threshold step.
     private var firedLevels: [String: (day: String, level: Int)] = [:]
+    /// Last non-flat side of the day change per symbol, for the 由涨转跌 /
+    /// 由跌转涨 rules. Day-stamped so yesterday's side never triggers a flip.
+    private var lastChangeSide: [String: (day: String, side: Int)] = [:]
 
     private static let pidDefaultsKey = "stockBridgePID"
     private static let helperServiceName = "theboringteam.boringnotch.BoringNotchXPCHelper"
@@ -345,11 +348,27 @@ final class StockManager: ObservableObject {
     }
 
     private func pushWatchlist() async {
-        guard let baseURL, !watchlist.isEmpty else { return }
+        guard let baseURL else { return }
         var request = URLRequest(url: baseURL.appendingPathComponent("watch"))
         request.httpMethod = "POST"
         request.httpBody = try? JSONEncoder().encode(["symbols": watchlist.map(\.symbol)])
         _ = try? await URLSession.shared.data(for: request)
+    }
+
+    /// Manual one-shot refresh of one market tab. The bridge keeps only the
+    /// current session's market subscribed, and nothing runs while the app is
+    /// closed, so the other tabs show cached (possibly days-old) prices until
+    /// this pulls fresh ones — it releases the slots again right after.
+    func refresh(market: StockMarket) async {
+        guard let baseURL else { return }
+        let symbols = orderedQuotes(market: market).map(\.symbol)
+        guard !symbols.isEmpty else { return }
+        var request = URLRequest(url: baseURL.appendingPathComponent("refresh"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 90   // OpenD throttles the timeshare backfill
+        request.httpBody = try? JSONEncoder().encode(["symbols": symbols])
+        _ = try? await URLSession.shared.data(for: request)
+        await poll()
     }
 
     // MARK: Polling
@@ -454,45 +473,82 @@ final class StockManager: ObservableObject {
 
             if let threshold = changeThreshold, let pct = quote.changePct {
                 edge(key: "chg|\(watched.symbol)", value: abs(pct), threshold: threshold,
-                     day: day, symbol: watched.symbol,
-                     message: "\(name) \(pct >= 0 ? "涨" : "跌")幅 \(Self.pct(pct))")
+                     day: day, symbol: watched.symbol) { _ in
+                    "\(name) \(pct >= 0 ? "涨" : "跌")幅 \(Self.pct(pct))"
+                }
             }
 
             if let threshold = changeThreshold, let ext = quote.ext, let pct = ext.changePct {
                 edge(key: "extchg|\(watched.symbol)|\(ext.label)", value: abs(pct), threshold: threshold,
-                     day: day, symbol: watched.symbol,
-                     message: "\(name) \(ext.label)\(pct >= 0 ? "涨" : "跌")幅 \(Self.pct(pct))")
+                     day: day, symbol: watched.symbol) { _ in
+                    "\(name) \(ext.label)\(pct >= 0 ? "涨" : "跌")幅 \(Self.pct(pct))"
+                }
             }
 
             if let threshold = reversalThreshold, let lastClose = quote.lastClose {
                 let now = Self.nowChange(quote.changePct)
                 if let high = quote.high, high > lastClose, high > 0 {
-                    edge(key: "revDown|\(watched.symbol)", value: (high - cur) / high * 100,
-                         threshold: threshold, day: day, symbol: watched.symbol,
-                         message: "\(name) 冲高回落 \(Self.pct((high - cur) / high * 100, signed: false))，\(now)")
+                    let drop = (high - cur) / high * 100
+                    edge(key: "revDown|\(watched.symbol)", value: drop,
+                         threshold: threshold, day: day, symbol: watched.symbol) { level in
+                        // Past the second rung the reversal is old news — the
+                        // trend hasn't turned, so just report where it stands.
+                        level > 2 ? "\(name) \(now)"
+                                  : "\(name) 冲高回落 \(Self.pct(drop, signed: false))，\(now)"
+                    }
                 }
                 if let low = quote.low, low < lastClose, low > 0 {
-                    edge(key: "revUp|\(watched.symbol)", value: (cur - low) / low * 100,
-                         threshold: threshold, day: day, symbol: watched.symbol,
-                         message: "\(name) 探底回升 \(Self.pct((cur - low) / low * 100, signed: false))，\(now)")
+                    let rise = (cur - low) / low * 100
+                    edge(key: "revUp|\(watched.symbol)", value: rise,
+                         threshold: threshold, day: day, symbol: watched.symbol) { level in
+                        level > 2 ? "\(name) \(now)"
+                                  : "\(name) 探底回升 \(Self.pct(rise, signed: false))，\(now)"
+                    }
                 }
             }
+
+            flipCheck(quote: quote, name: name, day: day, symbol: watched.symbol)
         }
     }
 
+    /// 由涨转跌 / 由跌转涨: the day change crosses the previous close. The 0.3%
+    /// deadband means a flip needs a real 0.6% round trip, so a stock hovering
+    /// at flat doesn't chatter; capped at 3 flips per trading day.
+    private func flipCheck(quote: StockQuote, name: String, day: String, symbol: String) {
+        guard let pct = quote.changePct, abs(pct) >= 0.3 else { return }
+        let side = pct > 0 ? 1 : -1
+        let previous = lastChangeSide[symbol]
+        // Same monotonic-day guard as the ladder: ignore a stale/empty push.
+        if let previous, day < previous.day { return }
+        lastChangeSide[symbol] = (day, side)
+        guard let previous, previous.day == day, previous.side != side else { return }
+
+        let key = "flip|\(symbol)"
+        let count = firedLevel(key, day: day) + 1
+        guard count <= 3 else { return }
+        storeLevel(key, day: day, level: count)
+        fire(symbol: symbol, message: "\(name) 由\(side > 0 ? "跌转涨" : "涨转跌")，\(Self.nowChange(pct))")
+    }
+
     private func edge(key: String, value: Double, threshold: Double, day: String,
-                      symbol: String, message: @autoclosure () -> String) {
+                      symbol: String, message: (Int) -> String) {
         guard threshold > 0 else { return }
         let level = Int(value / threshold)
-        // Monotonic day: only a strictly LATER day resets the ladder. quote.time
-        // can flip between sources (60s snapshot vs push, or be briefly empty on
-        // a partial push) — an equal/older/empty day must never reset, or the
-        // same alert refires on every poll while the sources alternate.
-        let stored = firedLevels[key]
-        let prev = stored.map { day > $0.day ? 0 : $0.level } ?? 0
-        guard level > prev else { return }
-        firedLevels[key] = (max(day, stored?.day ?? ""), level)
-        fire(symbol: symbol, message: message())
+        guard level > firedLevel(key, day: day) else { return }
+        storeLevel(key, day: day, level: level)
+        fire(symbol: symbol, message: message(level))
+    }
+
+    /// Level already fired for `key`, 0 once a strictly LATER trading day starts.
+    /// quote.time can flip between sources (60s snapshot vs push, or be briefly
+    /// empty on a partial push) — an equal/older/empty day must never reset, or
+    /// the same alert refires on every poll while the sources alternate.
+    private func firedLevel(_ key: String, day: String) -> Int {
+        firedLevels[key].map { day > $0.day ? 0 : $0.level } ?? 0
+    }
+
+    private func storeLevel(_ key: String, day: String, level: Int) {
+        firedLevels[key] = (max(day, firedLevels[key]?.day ?? ""), level)
     }
 
     private func fire(symbol: String, message: String) {
