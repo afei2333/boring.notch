@@ -27,7 +27,8 @@ let windowSize: CGSize = .init(width: openNotchSize.width, height: max(openNotch
 /// The height of the visible black notch area when open, depending on the view.
 func notchOpenHeight(for view: NotchViews) -> CGFloat {
     switch view {
-    case .screenshot, .clipboard, .stats:
+    // .apps: 190pt only fits one row of 52pt tiles + labels; needs two.
+    case .screenshot, .clipboard, .stats, .apps:
         return expandedNotchHeight
     default:
         return openNotchSize.height
