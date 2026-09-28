@@ -7,6 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A6E170010000000000000001 /* AgentHUDService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170020000000000000001 /* AgentHUDService.swift */; };
+		A6E170030000000000000001 /* AgentHUDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170040000000000000001 /* AgentHUDView.swift */; };
+		A6E170050000000000000001 /* AgentHUDCore in Frameworks */ = {isa = PBXBuildFile; productRef = A6E170060000000000000001 /* AgentHUDCore */; };
+		A6E1700E0000000000000001 /* AgentHUDDesktop in Frameworks */ = {isa = PBXBuildFile; productRef = A6E1700F0000000000000001 /* AgentHUDDesktop */; };
+		A6E170090000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A6E1700A0000000000000001 /* LICENSE */; };
+		A6E1700B0000000000000001 /* THIRD_PARTY_NOTICES.txt in Resources */ = {isa = PBXBuildFile; fileRef = A6E1700C0000000000000001 /* THIRD_PARTY_NOTICES.txt */; };
 		AA0000010000000000000001 /* ScreenshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000001 /* ScreenshotService.swift */; };
 		AA0000030000000000000001 /* ScreenshotViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000040000000000000001 /* ScreenshotViewModel.swift */; };
 		AA0000050000000000000001 /* ScreenshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000060000000000000001 /* ScreenshotView.swift */; };
@@ -129,9 +135,6 @@
 		AA11CE0003000000000000B1 /* SystemStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11CE0003000000000000A1 /* SystemStatsView.swift */; };
 		AA11CE0004000000000000B1 /* StockManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11CE0004000000000000A1 /* StockManager.swift */; };
 		AA11CE0005000000000000B1 /* StocksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11CE0005000000000000A1 /* StocksView.swift */; };
-		AA11CE0012000000000000B1 /* LotteryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11CE0012000000000000A1 /* LotteryView.swift */; };
-		AA11CE0011000000000000B1 /* LotteryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11CE0011000000000000A1 /* LotteryManager.swift */; };
-		AA11CE0010000000000000B1 /* LotteryRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11CE0010000000000000A1 /* LotteryRules.swift */; };
 		AA11CE0006000000000000B1 /* stock_bridge.py in Resources */ = {isa = PBXBuildFile; fileRef = AA11CE0006000000000000A1 /* stock_bridge.py */; };
 		AA11CE0007000000000000B1 /* StockSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11CE0007000000000000A1 /* StockSettings.swift */; };
 		B10348D92C74E56000475897 /* ConditionalModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10348D82C74E56000475897 /* ConditionalModifier.swift */; };
@@ -201,6 +204,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A6E170020000000000000001 /* AgentHUDService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHUDService.swift; sourceTree = "<group>"; };
+		A6E170040000000000000001 /* AgentHUDView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHUDView.swift; sourceTree = "<group>"; };
+		A6E1700A0000000000000001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
+		A6E1700C0000000000000001 /* THIRD_PARTY_NOTICES.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = THIRD_PARTY_NOTICES.txt; sourceTree = "<group>"; };
 		AA0000020000000000000001 /* ScreenshotService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotService.swift; sourceTree = "<group>"; };
 		AA0000040000000000000001 /* ScreenshotViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotViewModel.swift; sourceTree = "<group>"; };
 		AA0000060000000000000001 /* ScreenshotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotView.swift; sourceTree = "<group>"; };
@@ -318,9 +325,6 @@
 		AA11CE0003000000000000A1 /* SystemStatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemStatsView.swift; sourceTree = "<group>"; };
 		AA11CE0004000000000000A1 /* StockManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockManager.swift; sourceTree = "<group>"; };
 		AA11CE0005000000000000A1 /* StocksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StocksView.swift; sourceTree = "<group>"; };
-		AA11CE0012000000000000A1 /* LotteryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LotteryView.swift; sourceTree = "<group>"; };
-		AA11CE0011000000000000A1 /* LotteryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LotteryManager.swift; sourceTree = "<group>"; };
-		AA11CE0010000000000000A1 /* LotteryRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LotteryRules.swift; sourceTree = "<group>"; };
 		AA11CE0006000000000000A1 /* stock_bridge.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = "StockBridge/stock_bridge.py"; sourceTree = "<group>"; };
 		AA11CE0007000000000000A1 /* StockSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockSettings.swift; sourceTree = "<group>"; };
 		B10348D82C74E56000475897 /* ConditionalModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConditionalModifier.swift; sourceTree = "<group>"; };
@@ -378,6 +382,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6E170050000000000000001 /* AgentHUDCore in Frameworks */,
+				A6E1700E0000000000000001 /* AgentHUDDesktop in Frameworks */,
 				111BEA5F2ED07A340079DD4E /* MacroVisionKit in Frameworks */,
 				9A987A102C73CA8D005CA465 /* Collections in Frameworks */,
 				1194E8852EA57D23009C82D6 /* SkyLightWindow in Frameworks */,
@@ -397,6 +403,24 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		A6E1700D0000000000000001 /* Agent HUD Open notices */ = {
+			isa = PBXGroup;
+			children = (
+				A6E1700A0000000000000001 /* LICENSE */,
+				A6E1700C0000000000000001 /* THIRD_PARTY_NOTICES.txt */,
+			);
+			path = Vendor/AgentHUDOpen;
+			sourceTree = "<group>";
+		};
+		A6E170070000000000000001 /* AgentHUD */ = {
+			isa = PBXGroup;
+			children = (
+				A6E170020000000000000001 /* AgentHUDService.swift */,
+				A6E170040000000000000001 /* AgentHUDView.swift */,
+			);
+			path = AgentHUD;
+			sourceTree = "<group>";
+		};
 		1113ABB82E80E27000EC13B2 /* Models */ = {
 			isa = PBXGroup;
 			children = (
@@ -605,6 +629,7 @@
 		1471639B2C5D362F0068B555 /* components */ = {
 			isa = PBXGroup;
 			children = (
+				A6E170070000000000000001 /* AgentHUD */,
 				B141C23B2CA5F50900AC8CC8 /* Onboarding */,
 				B1C448992C97375A001F0858 /* Tips */,
 				14C08BB72C8DE49E000F8AA0 /* Calendar */,
@@ -641,8 +666,6 @@
 				59D8C23B2E589FAA00147B33 /* VolumeManager.swift */,
 				AB0000020000000000000001 /* MimoDaemonManager.swift */,
 				AA11CE0004000000000000A1 /* StockManager.swift */,
-				AA11CE0011000000000000A1 /* LotteryManager.swift */,
-				AA11CE0010000000000000A1 /* LotteryRules.swift */,
 			);
 			path = managers;
 			sourceTree = "<group>";
@@ -666,6 +689,7 @@
 		14CEF4092C5CAED200855D72 = {
 			isa = PBXGroup;
 			children = (
+				A6E1700D0000000000000001 /* Agent HUD Open notices */,
 				112B0EB62E30DD0F00562D6C /* mediaremote-adapter */,
 				14CEF4142C5CAED300855D72 /* boringNotch */,
 				11F748502EC9AABA00F841DB /* BoringNotchXPCHelper */,
@@ -837,7 +861,6 @@
 				AA11CE0002000000000000A1 /* ClipboardHistoryView.swift */,
 				AA11CE0003000000000000A1 /* SystemStatsView.swift */,
 				AA11CE0005000000000000A1 /* StocksView.swift */,
-				AA11CE0012000000000000A1 /* LotteryView.swift */,
 				14D570C52C5F38210011E668 /* BoringHeader.swift */,
 				14D570D12C5F6C6A0011E668 /* BoringExtrasMenu.swift */,
 				1471A8582C6281BD0058408D /* BoringNotchWindow.swift */,
@@ -934,6 +957,8 @@
 			);
 			name = boringNotch;
 			packageProductDependencies = (
+				A6E170060000000000000001 /* AgentHUDCore */,
+				A6E1700F0000000000000001 /* AgentHUDDesktop */,
 				14D032192C68F32E0096E6A1 /* LaunchAtLogin */,
 				14D0321C2C68F3350096E6A1 /* Sparkle */,
 				B18654382C6F4990000B926A /* KeyboardShortcuts */,
@@ -980,6 +1005,7 @@
 			);
 			mainGroup = 14CEF4092C5CAED200855D72;
 			packageReferences = (
+				A6E170080000000000000001 /* XCLocalSwiftPackageReference "Vendor/AgentHUDOpen" */,
 				14D032182C68F32E0096E6A1 /* XCRemoteSwiftPackageReference "LaunchAtLogin-Modern" */,
 				14D0321B2C68F3350096E6A1 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				B18654372C6F4990000B926A /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
@@ -1014,6 +1040,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6E170090000000000000001 /* LICENSE in Resources */,
+				A6E1700B0000000000000001 /* THIRD_PARTY_NOTICES.txt in Resources */,
 				14CEF41D2C5CAED400855D72 /* Preview Assets.xcassets in Resources */,
 				14CEF41A2C5CAED400855D72 /* Assets.xcassets in Resources */,
 				112B0EB82E30DD0F00562D6C /* MediaRemoteAdapterTestClient in Resources */,
@@ -1038,6 +1066,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6E170010000000000000001 /* AgentHUDService.swift in Sources */,
+				A6E170030000000000000001 /* AgentHUDView.swift in Sources */,
 				AA0000010000000000000001 /* ScreenshotService.swift in Sources */,
 				AA0000030000000000000001 /* ScreenshotViewModel.swift in Sources */,
 				AA0000050000000000000001 /* ScreenshotView.swift in Sources */,
@@ -1108,9 +1138,6 @@
 				AA11CE0003000000000000B1 /* SystemStatsView.swift in Sources */,
 				AA11CE0004000000000000B1 /* StockManager.swift in Sources */,
 				AA11CE0005000000000000B1 /* StocksView.swift in Sources */,
-				AA11CE0012000000000000B1 /* LotteryView.swift in Sources */,
-				AA11CE0011000000000000B1 /* LotteryManager.swift in Sources */,
-				AA11CE0010000000000000B1 /* LotteryRules.swift in Sources */,
 				AA11CE0007000000000000B1 /* StockSettings.swift in Sources */,
 				B172AAC02C95DA0B001623F1 /* InlineHUD.swift in Sources */,
 				14E9FEAA2C70BF610062E83F /* DownloadView.swift in Sources */,
@@ -1499,6 +1526,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		A6E170080000000000000001 /* XCLocalSwiftPackageReference "Vendor/AgentHUDOpen" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/AgentHUDOpen;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		111BE95B2ECD71E10079DD4E /* XCRemoteSwiftPackageReference "AsyncXPCConnection" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -1591,6 +1625,16 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		A6E170060000000000000001 /* AgentHUDCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A6E170080000000000000001 /* XCLocalSwiftPackageReference "Vendor/AgentHUDOpen" */;
+			productName = AgentHUDCore;
+		};
+		A6E1700F0000000000000001 /* AgentHUDDesktop */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A6E170080000000000000001 /* XCLocalSwiftPackageReference "Vendor/AgentHUDOpen" */;
+			productName = AgentHUDDesktop;
+		};
 		111BE95C2ECD71E10079DD4E /* AsyncXPCConnection */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 111BE95B2ECD71E10079DD4E /* XCRemoteSwiftPackageReference "AsyncXPCConnection" */;

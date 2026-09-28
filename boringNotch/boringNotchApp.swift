@@ -21,6 +21,7 @@ struct DynamicNotchApp: App {
     let updaterController: SPUStandardUpdaterController
 
     init() {
+        AgentHUDHookCommand.runIfNeeded()
         updaterController = SPUStandardUpdaterController(
             startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 
@@ -82,6 +83,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        AgentHUDService.shared.stop()
         NotificationCenter.default.removeObserver(self)
         if let observer = screenLockedObserver {
             DistributedNotificationCenter.default().removeObserver(observer)
@@ -292,6 +294,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
 
+        AgentHUDService.shared.start()
+
         // Clean up any mimo daemon orphaned by a previous crash / force quit.
         MimoDaemonManager.shared.reapStaleDaemon()
 
@@ -302,12 +306,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         StockManager.shared.reapStaleBridge()
         if !Defaults[.stockWatchlist].isEmpty {
             StockManager.shared.start()
-        }
-
-        // Settle whatever drew while the app was closed, so the Lottery tab is
-        // already up to date the first time it is opened.
-        if !Defaults[.lotteryTickets].isEmpty {
-            Task { await LotteryManager.shared.refresh() }
         }
 
         #if DEBUG

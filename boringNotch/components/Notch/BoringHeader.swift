@@ -39,6 +39,7 @@ struct BoringHeader: View {
     // open notch — recompute dynamically if tabs or open width ever change.
     private static let leftTabs = Array(tabs.prefix(5))
     private static let rightTabs = Array(tabs.dropFirst(5))
+    private static let agentFallbackTabs = tabs.filter { $0.view == .home || $0.view == .agents }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -53,7 +54,7 @@ struct BoringHeader: View {
                         TabSelectionView()
                     }
                 } else if vm.notchState == .open {
-                    EmptyView()
+                    TabSelectionView(visibleTabs: Self.agentFallbackTabs, compact: vm.screenHasCamera)
                 }
             }
             .frame(maxWidth: .infinity, alignment: vm.screenHasCamera ? .trailing : .leading)

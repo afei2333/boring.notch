@@ -420,10 +420,10 @@ struct ContentView: View {
                         ClipboardHistoryView()
                     case .stats:
                         SystemStatsView()
+                    case .agents:
+                        AgentHUDView()
                     case .stocks:
                         StocksView()
-                    case .lottery:
-                        LotteryView()
                     }
                 }
                 // Asymmetric on purpose. In: the container opens first, then the

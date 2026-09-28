@@ -32,8 +32,8 @@ public enum NotchViews {
     case apps
     case clipboard
     case stats
+    case agents
     case stocks
-    case lottery
 }
 
 enum SettingsEnum {

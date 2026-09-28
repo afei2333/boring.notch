@@ -112,6 +112,7 @@ brew install --cask TheBoredTeam/boring-notch/boring-notch
 - [x] Shelf functionality with AirDrop 📚
 - [x] Notch sizing customization, finetuning on different display sizes 🖥️
 - [x] System HUD replacements (volume, brightness, backlight) 🎚️💡⌨️
+- [x] Coding agent activity, quota, and token usage in the expanded notch 🤖
 - [ ] Bluetooth Live Activity (connect/disconnect for bluetooth devices) 
 - [ ] Weather integration ⛅️
 - [ ] Customizable Layout options 🛠️
@@ -128,6 +129,15 @@ brew install --cask TheBoredTeam/boring-notch/boring-notch
 > We’re hard at work on some awesome extensions! Stay tuned, and we’ll keep you updated as soon as they’re released. -->
 
 ## Building from Source
+
+The **Agents** tab uses the original [Agent HUD Open](Vendor/AgentHUDOpen/README.md)
+panel for locally detected clients. It appears in the expanded notch by default;
+the top-right controls switch between quota, burn rate, and token rate. Available
+quota and balance readings depend on each client and its
+configured account. The main app runs without App Sandbox so it can read agents'
+local logs and account data. It attempts to install completion and attention
+hooks for supported clients; approval requests remain in the coding client's
+own UI. GitHub Copilot quota access uses the existing GitHub CLI sign-in.
 
 ### Prerequisites
 
@@ -187,5 +197,4 @@ For a full list of licenses and attributions, please see the [Third-Party Licens
 
 - **SwiftUI**: For making us look like coding wizards.
 - **You**: For being awesome and checking out **boring.notch**!
-
 

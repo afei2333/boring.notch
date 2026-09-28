@@ -4,7 +4,7 @@
 #
 # 构建 Release 版 LLD-AI.app，拷贝到项目根目录，并做「递归深度重签名」：
 # 用本地 ad-hoc 签名把框架、XPC helper 和主程序统一重签为一致的签名，
-# 同时保留每个二进制各自的 entitlements（主程序是沙盒应用、helper 不同，
+# 同时保留每个二进制各自的 entitlements（主程序与 helper 不同，
 # 不能用一份 entitlements 覆盖全部，所以用 --preserve-metadata=entitlements）。
 #
 # 用法:

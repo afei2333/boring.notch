@@ -15,19 +15,20 @@ let batterySneakSize: CGSize = .init(width: 160, height: 1)
 let shadowPadding: CGFloat = 20
 let openNotchSize: CGSize = .init(width: 640, height: 190)
 
-/// Interactive tool views (e.g. the screenshot panel) need more vertical room
-/// than the default open notch. The panel window is created at the tallest
-/// height needed; the visible black area for each view is driven per-view by
-/// `notchOpenHeight(for:)`. Extra window height below the notch stays
-/// transparent and passes clicks through, exactly like the closed-notch state.
+/// Views with more content need more room than the default open notch. The
+/// window uses the tallest height; `notchOpenHeight(for:)` chooses the visible
+/// area for each view. Unused window space remains transparent.
 let expandedNotchHeight: CGFloat = 300
+let agentNotchHeight: CGFloat = 450
 
-let windowSize: CGSize = .init(width: openNotchSize.width, height: max(openNotchSize.height, expandedNotchHeight) + shadowPadding)
+let windowSize: CGSize = .init(width: openNotchSize.width, height: max(openNotchSize.height, expandedNotchHeight, agentNotchHeight) + shadowPadding)
 
 /// The height of the visible black notch area when open, depending on the view.
 func notchOpenHeight(for view: NotchViews) -> CGFloat {
     switch view {
     // .apps: 190pt only fits one row of 52pt tiles + labels; needs two.
+    case .agents:
+        return agentNotchHeight
     case .screenshot, .clipboard, .stats, .apps:
         return expandedNotchHeight
     default:
