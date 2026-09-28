@@ -422,6 +422,8 @@ struct ContentView: View {
                         SystemStatsView()
                     case .stocks:
                         StocksView()
+                    case .lottery:
+                        LotteryView()
                     }
                 }
                 // Asymmetric on purpose. In: the container opens first, then the

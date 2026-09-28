@@ -304,6 +304,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             StockManager.shared.start()
         }
 
+        // Settle whatever drew while the app was closed, so the Lottery tab is
+        // already up to date the first time it is opened.
+        if !Defaults[.lotteryTickets].isEmpty {
+            Task { await LotteryManager.shared.refresh() }
+        }
+
         #if DEBUG
         ScreenshotSelfTest.shared.start()
         #endif

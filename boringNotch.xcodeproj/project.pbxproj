@@ -129,6 +129,9 @@
 		AA11CE0003000000000000B1 /* SystemStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11CE0003000000000000A1 /* SystemStatsView.swift */; };
 		AA11CE0004000000000000B1 /* StockManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11CE0004000000000000A1 /* StockManager.swift */; };
 		AA11CE0005000000000000B1 /* StocksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11CE0005000000000000A1 /* StocksView.swift */; };
+		AA11CE0012000000000000B1 /* LotteryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11CE0012000000000000A1 /* LotteryView.swift */; };
+		AA11CE0011000000000000B1 /* LotteryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11CE0011000000000000A1 /* LotteryManager.swift */; };
+		AA11CE0010000000000000B1 /* LotteryRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11CE0010000000000000A1 /* LotteryRules.swift */; };
 		AA11CE0006000000000000B1 /* stock_bridge.py in Resources */ = {isa = PBXBuildFile; fileRef = AA11CE0006000000000000A1 /* stock_bridge.py */; };
 		AA11CE0007000000000000B1 /* StockSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11CE0007000000000000A1 /* StockSettings.swift */; };
 		B10348D92C74E56000475897 /* ConditionalModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10348D82C74E56000475897 /* ConditionalModifier.swift */; };
@@ -315,6 +318,9 @@
 		AA11CE0003000000000000A1 /* SystemStatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemStatsView.swift; sourceTree = "<group>"; };
 		AA11CE0004000000000000A1 /* StockManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockManager.swift; sourceTree = "<group>"; };
 		AA11CE0005000000000000A1 /* StocksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StocksView.swift; sourceTree = "<group>"; };
+		AA11CE0012000000000000A1 /* LotteryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LotteryView.swift; sourceTree = "<group>"; };
+		AA11CE0011000000000000A1 /* LotteryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LotteryManager.swift; sourceTree = "<group>"; };
+		AA11CE0010000000000000A1 /* LotteryRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LotteryRules.swift; sourceTree = "<group>"; };
 		AA11CE0006000000000000A1 /* stock_bridge.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = "StockBridge/stock_bridge.py"; sourceTree = "<group>"; };
 		AA11CE0007000000000000A1 /* StockSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockSettings.swift; sourceTree = "<group>"; };
 		B10348D82C74E56000475897 /* ConditionalModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConditionalModifier.swift; sourceTree = "<group>"; };
@@ -635,6 +641,8 @@
 				59D8C23B2E589FAA00147B33 /* VolumeManager.swift */,
 				AB0000020000000000000001 /* MimoDaemonManager.swift */,
 				AA11CE0004000000000000A1 /* StockManager.swift */,
+				AA11CE0011000000000000A1 /* LotteryManager.swift */,
+				AA11CE0010000000000000A1 /* LotteryRules.swift */,
 			);
 			path = managers;
 			sourceTree = "<group>";
@@ -829,6 +837,7 @@
 				AA11CE0002000000000000A1 /* ClipboardHistoryView.swift */,
 				AA11CE0003000000000000A1 /* SystemStatsView.swift */,
 				AA11CE0005000000000000A1 /* StocksView.swift */,
+				AA11CE0012000000000000A1 /* LotteryView.swift */,
 				14D570C52C5F38210011E668 /* BoringHeader.swift */,
 				14D570D12C5F6C6A0011E668 /* BoringExtrasMenu.swift */,
 				1471A8582C6281BD0058408D /* BoringNotchWindow.swift */,
@@ -1099,6 +1108,9 @@
 				AA11CE0003000000000000B1 /* SystemStatsView.swift in Sources */,
 				AA11CE0004000000000000B1 /* StockManager.swift in Sources */,
 				AA11CE0005000000000000B1 /* StocksView.swift in Sources */,
+				AA11CE0012000000000000B1 /* LotteryView.swift in Sources */,
+				AA11CE0011000000000000B1 /* LotteryManager.swift in Sources */,
+				AA11CE0010000000000000B1 /* LotteryRules.swift in Sources */,
 				AA11CE0007000000000000B1 /* StockSettings.swift in Sources */,
 				B172AAC02C95DA0B001623F1 /* InlineHUD.swift in Sources */,
 				14E9FEAA2C70BF610062E83F /* DownloadView.swift in Sources */,

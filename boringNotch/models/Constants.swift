@@ -181,6 +181,14 @@ extension Defaults.Keys {
     /// Filenames of copied images (PNG, in Application Support/ClipboardImages), newest first.
     static let clipboardImages = Key<[String]>("clipboardImages", default: [])
     
+    // MARK: Lottery
+    /// 赛博彩票 tickets, pending and settled alike — the ledger is derived from them.
+    static let lotteryTickets = Key<[LotteryTicket]>("lotteryTickets", default: [])
+    /// How many winning tickets the user had already seen last time 历史记录 was
+    /// opened. Tickets are never deleted, so the win count only grows and the
+    /// unread badge is a subtraction.
+    static let lotterySeenWinCount = Key<Int>("lotterySeenWinCount", default: 0)
+
     // MARK: Stocks
     /// Watched symbols with per-symbol alert on/off.
     static let stockWatchlist = Key<[WatchedStock]>("stockWatchlist", default: [])

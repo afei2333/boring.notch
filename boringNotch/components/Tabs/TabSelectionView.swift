@@ -22,7 +22,8 @@ let tabs = [
     TabModel(label: "Apps", icon: "square.grid.2x2.fill", view: .apps),
     TabModel(label: "Clipboard", icon: "doc.on.clipboard", view: .clipboard),
     TabModel(label: "Stats", icon: "gauge.with.dots.needle.50percent", view: .stats),
-    TabModel(label: "Stocks", icon: "chart.line.uptrend.xyaxis", view: .stocks)
+    TabModel(label: "Stocks", icon: "chart.line.uptrend.xyaxis", view: .stocks),
+    TabModel(label: "Lottery", icon: "ticket.fill", view: .lottery)
 ]
 
 struct TabSelectionView: View {

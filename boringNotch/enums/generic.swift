@@ -33,6 +33,7 @@ public enum NotchViews {
     case clipboard
     case stats
     case stocks
+    case lottery
 }
 
 enum SettingsEnum {
