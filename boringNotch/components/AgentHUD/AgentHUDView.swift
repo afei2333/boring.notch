@@ -27,24 +27,26 @@ struct AgentHUDView: View {
     var body: some View {
         let vendors = availableVendors
         let vendor = selectedVendor.flatMap { vendors.contains($0) ? $0 : nil } ?? vendors.first
-        return VStack(alignment: .leading, spacing: 0) {
-            if let vendor {
-                EmbeddedAgentHUDPanel(store: store, vendor: vendor, vendorChoices: vendors) {
-                    selectedVendor = $0
+        return ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 0) {
+                if let vendor {
+                    EmbeddedAgentHUDPanel(store: store, vendor: vendor, vendorChoices: vendors) {
+                        selectedVendor = $0
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else if store.isLoading {
+                    ProgressView("正在读取代理数据…")
+                        .frame(maxWidth: .infinity, minHeight: 300)
+                } else {
+                    ContentUnavailableView("暂无代理数据", systemImage: "terminal", description: Text("启动受支持的编程代理后会在这里显示。"))
+                        .frame(maxWidth: .infinity, minHeight: 300)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } else if store.isLoading {
-                ProgressView("正在读取代理数据…")
-                    .frame(maxWidth: .infinity, minHeight: 300)
-            } else {
-                ContentUnavailableView("暂无代理数据", systemImage: "terminal", description: Text("启动受支持的编程代理后会在这里显示。"))
-                    .frame(maxWidth: .infinity, minHeight: 300)
             }
+            .fixedSize(horizontal: false, vertical: true)
+            .background(GeometryReader { proxy in
+                Color.clear.preference(key: AgentHUDContentHeightKey.self, value: proxy.size.height)
+            })
         }
-        .fixedSize(horizontal: false, vertical: true)
-        .background(GeometryReader { proxy in
-            Color.clear.preference(key: AgentHUDContentHeightKey.self, value: proxy.size.height)
-        })
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onPreferenceChange(AgentHUDContentHeightKey.self) { height in
             vm.updateAgentContentHeight(height)

@@ -151,7 +151,7 @@ struct ContentView: View {
                     )
                 
                 mainLayout
-                    .frame(height: vm.notchState == .open ? vm.notchSize.height : nil)
+                    .frame(height: vm.notchState == .open ? vm.notchSize.height : nil, alignment: .top)
                     // No .animation(_:value: notchState) here on purpose: an
                     // implicit animation would override the transaction from
                     // vm.open()/close() for this subtree only, so the body and
