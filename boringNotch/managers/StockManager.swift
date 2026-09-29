@@ -159,6 +159,8 @@ final class StockManager: ObservableObject {
     @Published private(set) var state: BridgeState = .stopped
     @Published private(set) var quotes: [String: StockQuote] = [:]
     @Published private(set) var bridgeError: String?
+    @Published private(set) var manualRefreshError: String?
+    @Published private(set) var errorDismissed = false
     @Published private(set) var firedAlerts: [FiredAlert] = Defaults[.stockAlertHistory]
         .filter { $0.date > .now.addingTimeInterval(-86400) } {
         didSet { Defaults[.stockAlertHistory] = firedAlerts }
@@ -219,6 +221,7 @@ final class StockManager: ObservableObject {
         case .starting, .ready: return
         default: break
         }
+        errorDismissed = false
         state = .starting
         bridgeError = nil
         startTask?.cancel()
@@ -360,6 +363,8 @@ final class StockManager: ObservableObject {
     /// closed, so the other tabs show cached (possibly days-old) prices until
     /// this pulls fresh ones — it releases the slots again right after.
     func refresh(market: StockMarket) async {
+        errorDismissed = false
+        manualRefreshError = nil
         guard let baseURL else { return }
         let symbols = orderedQuotes(market: market).map(\.symbol)
         guard !symbols.isEmpty else { return }
@@ -367,8 +372,20 @@ final class StockManager: ObservableObject {
         request.httpMethod = "POST"
         request.timeoutInterval = 90   // OpenD throttles the timeshare backfill
         request.httpBody = try? JSONEncoder().encode(["symbols": symbols])
-        _ = try? await URLSession.shared.data(for: request)
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let response = try JSONDecoder().decode(RefreshResponse.self, from: data)
+            if !response.ok {
+                manualRefreshError = response.error ?? "刷新行情失败"
+            }
+        } catch {
+            manualRefreshError = "刷新行情失败：\(error.localizedDescription)"
+        }
         await poll()
+    }
+
+    func dismissError() {
+        errorDismissed = true
     }
 
     // MARK: Polling
@@ -377,6 +394,11 @@ final class StockManager: ObservableObject {
         let ok: Bool
         let error: String?
         let quotes: [StockQuote]
+    }
+
+    private struct RefreshResponse: Codable {
+        let ok: Bool
+        let error: String?
     }
 
     private struct SnapshotResponse: Codable {

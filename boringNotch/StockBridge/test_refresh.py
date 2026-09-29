@@ -18,6 +18,8 @@ calls = []
 class FakeCtx:
     def subscribe(self, codes, subs):
         calls.append(("sub", sorted(codes)))
+        if "HK.01810" in codes and deny_subscription:
+            return "ERR", "没有订阅权限"
         return "OK", None
 
     def unsubscribe(self, codes, subs):
@@ -25,11 +27,16 @@ class FakeCtx:
         return "OK", None
 
 
+deny_subscription = False
+prime_error = False
 sb.FT = types.SimpleNamespace(RET_OK="OK",
-                              SubType=types.SimpleNamespace(**{t: t for t in sb.SUB_TYPES}))
+                              SubType=types.SimpleNamespace(**{t: t for t in sb.SUB_TYPES}),
+                              KLType=types.SimpleNamespace(K_1M="K_1M"))
+real_prime = sb._prime_rt_history
 sb._ctx = lambda: FakeCtx()
 sb._fetch_snapshot = lambda codes: calls.append(("snap", sorted(codes))) or True
-sb._prime_rt_history = lambda codes: calls.append(("prime", sorted(codes)))
+sb._prime_rt_history = lambda codes: (calls.append(("prime", sorted(codes)))
+                                      or (["US.AAPL: 没有分时权限"] if prime_error else []))
 
 sb.WATCHED.update({"HK.00700", "HK.01810", "US.AAPL"})
 sb.ACTIVE.update({"US.AAPL"})            # US session: HK is not subscribed
@@ -40,14 +47,14 @@ sb._is_open = open_us
 # refreshing the inactive HK tab: snapshot both, prime both, then release both
 assert sb._refresh(["HK.00700", "HK.01810"])
 assert calls == [("snap", ["HK.00700", "HK.01810"]),
-                 ("sub", ["HK.00700", "HK.01810"]),
+                 ("sub", ["HK.00700"]), ("sub", ["HK.01810"]),
                  ("prime", ["HK.00700", "HK.01810"]),
                  ("unsub", ["HK.00700", "HK.01810"])], calls
 
-# refreshing the active tab: no temporary subscription at all
+# refreshing the active tab must also re-prime today's full minute line
 calls.clear()
 assert sb._refresh(["US.AAPL"])
-assert calls == [("snap", ["US.AAPL"])], calls
+assert calls == [("snap", ["US.AAPL"]), ("prime", ["US.AAPL"])], calls
 
 # a code still listed ACTIVE right after its close must hand the slot back too
 calls.clear()
@@ -57,10 +64,41 @@ assert calls == [("snap", ["US.AAPL"]), ("sub", ["US.AAPL"]),
                  ("prime", ["US.AAPL"]), ("unsub", ["US.AAPL"])], calls
 sb._is_open = open_us
 
+# a failed subscription is reported while the permitted symbol still refreshes
+calls.clear()
+deny_subscription = True
+assert not sb._refresh(["HK.00700", "HK.01810"])
+assert "HK.01810: 没有订阅权限" in sb.LAST_ERROR
+assert ("prime", ["HK.00700"]) in calls
+assert ("unsub", ["HK.00700"]) in calls
+deny_subscription = False
+
+# an active quote can update while its minute-line permission is denied
+calls.clear()
+prime_error = True
+assert not sb._refresh(["US.AAPL"])
+assert sb.LAST_ERROR == "US.AAPL: 没有分时权限"
+prime_error = False
+
 # unknown codes are dropped, and an all-unknown request is a no-op
 calls.clear()
 assert sb._refresh(["US.NOPE"])
 assert calls == [], calls
+
+# denied RT/K-line pulls keep the previously displayed minute line intact
+class NoRightsCtx:
+    def get_rt_data(self, code):
+        return "ERR", "没有分时权限"
+
+    def get_cur_kline(self, code, count, kind):
+        return "ERR", "没有K线权限"
+
+
+sb._ctx = lambda: NoRightsCtx()
+sb._save_quote_cache = lambda: None
+sb.RT["US.AAPL"] = {"date": "2026-08-10", "points": [{"t": "09:30", "p": 100}]}
+assert real_prime(["US.AAPL"]) == ["US.AAPL: 没有K线权限"]
+assert sb.RT["US.AAPL"]["points"] == [{"t": "09:30", "p": 100}]
 
 # the real session windows: weekday in-session vs. closed vs. weekend
 ny = lambda *a: datetime(*a, tzinfo=ZoneInfo("America/New_York"))

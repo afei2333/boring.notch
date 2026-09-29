@@ -468,7 +468,8 @@ def _prime_rt_history(codes):
     otherwise later cards stay at one point and render as an empty chart."""
     qc = _ctx()
     if qc is None:
-        return
+        return [LAST_ERROR or "cannot connect OpenD"]
+    errors = []
     for index, code in enumerate(codes):
         if index and index % 10 == 0:
             _time.sleep(30)
@@ -484,18 +485,22 @@ def _prime_rt_history(codes):
                         _append_rt(code, str(row.get("time") or ""), _f(row, "cur_price"))
                 filled = True
         if not filled:
-            ret, data = qc.get_cur_kline(code, 400, FT.KLType.K_1M)
-            if ret == FT.RET_OK:
-                rows = data.to_dict("records")
+            kline_ret, kline_data = qc.get_cur_kline(code, 400, FT.KLType.K_1M)
+            if kline_ret == FT.RET_OK:
+                rows = kline_data.to_dict("records")
                 last_date = str(rows[-1].get("time_key") or "")[:10] if rows else ""
-                with LOCK:
-                    RT.pop(code, None)
-                    for row in rows:
-                        time_key = str(row.get("time_key") or "")
-                        close = _f(row, "close")
-                        if time_key[:10] == last_date and close:
-                            _append_rt(code, time_key, close)
+                if rows:
+                    with LOCK:
+                        RT.pop(code, None)
+                        for row in rows:
+                            time_key = str(row.get("time_key") or "")
+                            close = _f(row, "close")
+                            if time_key[:10] == last_date and close:
+                                _append_rt(code, time_key, close)
+            else:
+                errors.append(f"{code}: {kline_data}")
     _save_quote_cache()
+    return errors
 
 
 SUB_TYPES = ["QUOTE", "RT_DATA", "K_1M"]  # names — FT is imported lazily
@@ -623,10 +628,8 @@ def _watch(symbols):
 
 
 def _refresh(codes):
-    """One-shot pull for a market the current session doesn't keep subscribed —
-    its cards would otherwise show whatever the cache last saw (possibly days
-    old). Snapshots need no subscription; the 时分图 does, so subscribe those
-    codes just long enough to backfill it and hand the slots straight back."""
+    """One-shot pull of fresh quotes and full minute lines. Inactive markets
+    borrow subscription slots only for the backfill, then release them."""
     with LOCK:
         codes = [c for c in codes if c in WATCHED]
         # Closed codes count as temp even while ACTIVE still lists them (up to
@@ -636,17 +639,30 @@ def _refresh(codes):
     if not codes:
         return True
     ok = _fetch_snapshot(codes)
+    errors = [LAST_ERROR or "获取最新报价失败"] if not ok else []
     qc = _ctx() if temp else None
-    if qc is not None:
-        subs = [getattr(FT.SubType, t) for t in SUB_TYPES]
-        ret, _err = qc.subscribe(temp, subs)
-        if ret == FT.RET_OK:
-            try:
-                _prime_rt_history(temp)   # sync: the unsubscribe must come after
-            finally:
-                qc.unsubscribe(temp, subs)
+    subs = [getattr(FT.SubType, t) for t in SUB_TYPES] if qc is not None else []
+    primable = [c for c in codes if not _is_external(c) and c not in temp]
+    subscribed = []
+    for code in temp:
+        if qc is None:
+            errors.append(f"{code}: {LAST_ERROR or 'cannot connect OpenD'}")
+            continue
+        ret, err = qc.subscribe([code], subs)
+        if ret != FT.RET_OK:
+            errors.append(f"{code}: {err}")
+            continue
+        subscribed.append(code)
+    primable.extend(subscribed)
+    if primable:
+        try:
+            errors.extend(_prime_rt_history(primable) or [])
+        finally:
+            if subscribed:
+                qc.unsubscribe(subscribed, subs)
     _save_quote_cache()
-    return ok
+    _set_error("; ".join(errors) if errors else None)
+    return not errors
 
 
 # Symbol search: full code+name universe per (market, type), loaded lazily on

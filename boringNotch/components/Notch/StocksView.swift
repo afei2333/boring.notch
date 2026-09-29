@@ -176,9 +176,9 @@ struct StocksView: View {
     private var errorBanner: (some View)? {
         let message: String? = switch manager.state {
         case .failed(let error): error
-        default: manager.bridgeError
+        default: manager.manualRefreshError ?? manager.bridgeError
         }
-        guard var message else { return Optional<AnyView>.none }
+        guard var message, !manager.errorDismissed else { return Optional<AnyView>.none }
         if message.contains("cannot connect OpenD") {
             message = "需要启动 FutuOpenD 才能获取数据"
         }
@@ -198,6 +198,13 @@ struct StocksView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.blue)
+                Button {
+                    manager.dismissError()
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.plain)
+                .help("关闭提示；下次手动刷新时再提醒")
             }
             .font(.caption2)
             .foregroundStyle(.gray)
