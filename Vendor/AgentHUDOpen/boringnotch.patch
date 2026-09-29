@@ -1,0 +1,256 @@
+diff --git a/Sources/AgentHUDCore/Providers/SessionObservers.swift b/Sources/AgentHUDCore/Providers/SessionObservers.swift
+index 1e87549..76b231e 100644
+--- a/Sources/AgentHUDCore/Providers/SessionObservers.swift
++++ b/Sources/AgentHUDCore/Providers/SessionObservers.swift
+@@ -4,7 +4,7 @@ import Foundation
+ public enum SessionObservers {
+     /// Adds this installation's handlers to every client installed here, or, with `enabled` false, takes them out.
+     /// A handler another installation added stays with it, and every other entry in the clients' files is left alone.
+-    public static func configure(executable: URL, enabled: Bool,
++    public static func configure(executable: URL, enabled: Bool, includePermissionHooks: Bool = true,
+                                  home: URL = FileManager.default.homeDirectoryForCurrentUser) {
+         do {
+             if enabled { try PiSessionObserver.configureIfAvailable(home: home) }
+@@ -14,9 +14,11 @@ public enum SessionObservers {
+             do { try AttentionHooks.configure(source, enabled: enabled, executable: executable, home: home) }
+             catch { NSLog("[AgentHUD] Notification hook setup failed for %@: %@", source.rawValue, error.localizedDescription) }
+         }
+-        for source in PermissionHooks.Source.allCases where source.isInstalled(home: home) {
+-            do { try PermissionHooks.configure(source, enabled: enabled, executable: executable, home: home) }
+-            catch { NSLog("[AgentHUD] Permission hook setup failed for %@: %@", source.rawValue, error.localizedDescription) }
++        if includePermissionHooks {
++            for source in PermissionHooks.Source.allCases where source.isInstalled(home: home) {
++                do { try PermissionHooks.configure(source, enabled: enabled, executable: executable, home: home) }
++                catch { NSLog("[AgentHUD] Permission hook setup failed for %@: %@", source.rawValue, error.localizedDescription) }
++            }
+         }
+         for source in CompletionHooks.Source.allCases {
+             guard AdditionalSource(rawValue: source.rawValue)?.isInstalled(home: home) == true else { continue }
+diff --git a/Sources/AgentHUDDesktop/Notch/EmbeddedAgentHUDPanel.swift b/Sources/AgentHUDDesktop/Notch/EmbeddedAgentHUDPanel.swift
+new file mode 100644
+index 0000000..45033b8
+--- /dev/null
++++ b/Sources/AgentHUDDesktop/Notch/EmbeddedAgentHUDPanel.swift
+@@ -0,0 +1,47 @@
++import AgentHUDCore
++import SwiftUI
++
++/// The source island panel inside a host application's expanded notch.
++public struct EmbeddedAgentHUDPanel: View {
++    let store: UsageStore
++    let vendor: String
++    let vendorChoices: [String]
++    let onSelectVendor: (String) -> Void
++
++    public init(store: UsageStore, vendor: String, vendorChoices: [String],
++                onSelectVendor: @escaping (String) -> Void) {
++        self.store = store
++        self.vendor = vendor
++        self.vendorChoices = vendorChoices
++        self.onSelectVendor = onSelectVendor
++    }
++
++    public var body: some View {
++        let hasQuotaRows = store.rowGroups.contains { $0.vendor == vendor }
++        return VStack(alignment: .leading, spacing: 0) {
++            if !hasQuotaRows {
++                Menu {
++                    ForEach(vendorChoices, id: \.self) { choice in
++                        Button(VendorCatalog.name(choice)) { onSelectVendor(choice) }
++                    }
++                } label: {
++                    HStack(spacing: 6) {
++                        AgentLogo(vendor: vendor, size: 14)
++                        Text(VendorCatalog.name(vendor)).font(.ui(13, .bold))
++                        if vendorChoices.count > 1 {
++                            Image(systemName: "chevron.down").font(.ui(9))
++                        }
++                    }
++                    .foregroundStyle(Theme.island.text)
++                }
++                .menuStyle(.borderlessButton)
++                .fixedSize()
++                .padding(.horizontal, 24)
++                .padding(.top, 12)
++            }
++            HoverPanelView(store: store, onOpenStats: {}, selectedVendor: vendor,
++                           vendorChoices: vendorChoices, onSelectVendor: onSelectVendor,
++                           showsFooter: false, topInset: hasQuotaRows ? 12 : 8)
++        }
++    }
++}
+diff --git a/Sources/AgentHUDDesktop/Notch/HoverPanelView.swift b/Sources/AgentHUDDesktop/Notch/HoverPanelView.swift
+index 357c755..900b63f 100644
+--- a/Sources/AgentHUDDesktop/Notch/HoverPanelView.swift
++++ b/Sources/AgentHUDDesktop/Notch/HoverPanelView.swift
+@@ -82,6 +82,11 @@ struct HoverPanelView: View {
+     let store: UsageStore
+     let onOpenStats: () -> Void
+     var onOpenSettings: () -> Void = {}
++    var selectedVendor: String? = nil
++    var vendorChoices: [String] = []
++    var onSelectVendor: (String) -> Void = { _ in }
++    var showsFooter = true
++    var topInset: CGFloat = 32
+     var alert: IslandAlert? = nil
+     var onOpenAlert: () -> Void = {}
+     var onDecideAlert: (PermissionDecision) -> Void = { _ in }
+@@ -101,27 +106,27 @@ struct HoverPanelView: View {
+                                       waitingRequests: waitingRequests).id(alert.id)
+                     .padding(.bottom, 4)
+             }
+-            if store.settings.settings.showIslandQuota, !store.rows.isEmpty {
++            if store.settings.settings.showIslandQuota, !selectedRows.isEmpty {
+                 quotaBlock
+             }
+             if store.settings.settings.showIslandQuota {
+-                ForEach(store.enabledBilling) { billing in
++                ForEach(store.enabledBilling.filter { selectedVendor == nil || $0.vendor == selectedVendor }) { billing in
+                     APIBillingCard(billing: billing, store: store, theme: theme, compact: true)
+                         .padding(.top, 8)
+                         .topDivider(theme.divider)
+                 }
+             }
+-            if store.settings.settings.showIslandTokens, store.isLoading || store.isIndexing || !store.consumers.isEmpty {
+-                TokenConsumptionChart(store: store, theme: theme, context: .island)
++            if store.settings.settings.showIslandTokens, store.isLoading || store.isIndexing || !selectedConsumers.isEmpty {
++                TokenConsumptionChart(store: store, theme: theme, context: .island, vendor: selectedVendor)
+                     .padding(.top, 8)
+                     .topDivider(theme.divider)
+             }
+             if store.settings.settings.showIslandSessions {
+                 sessionLine
+             }
+-            footer
++            if showsFooter { footer }
+         }
+-        .padding(EdgeInsets(top: 32, leading: 18, bottom: 14, trailing: 18))
++        .padding(EdgeInsets(top: topInset, leading: 18, bottom: 14, trailing: 18))
+         .foregroundStyle(theme.text)
+         .background(GeometryReader { proxy in
+             Color.clear.preference(key: PanelHeightKey.self, value: proxy.size.height)
+@@ -130,8 +135,9 @@ struct HoverPanelView: View {
+ 
+     private var quotaBlock: some View {
+         VStack(alignment: .leading, spacing: 10) {
+-            ForEach(Array(store.rowGroups.enumerated()), id: \.element.vendor) { index, group in
+-                ProviderQuotaBlock(store: store, vendor: group.vendor, rows: group.rows)
++            ForEach(Array(store.rowGroups.filter { selectedVendor == nil || $0.vendor == selectedVendor }.enumerated()), id: \.element.vendor) { index, group in
++                ProviderQuotaBlock(store: store, vendor: group.vendor, rows: group.rows,
++                                   vendorChoices: vendorChoices, onSelectVendor: onSelectVendor)
+                 .padding(.top, index > 0 ? 8 : 0)
+                 .topDivider(index > 0 ? theme.divider : .clear)
+             }
+@@ -148,8 +154,9 @@ struct HoverPanelView: View {
+     /// different question. When nothing is running, the sessions that ended most recently take the same rows.
+     /// The header opens the statistics window's Sessions page, a row that session's own page.
+     private var sessionLine: some View {
+-        let running = store.liveSessions
+-        let shown = Array((running.isEmpty ? store.sessions : running).prefix(Self.sessionRowLimit))
++        let running = store.liveSessions.filter { selectedVendor == nil || store.sessionSource($0).vendor == selectedVendor }
++        let recent = store.sessions.filter { selectedVendor == nil || store.sessionSource($0).vendor == selectedVendor }
++        let shown = Array((running.isEmpty ? recent : running).prefix(Self.sessionRowLimit))
+         return VStack(alignment: .leading, spacing: 6) {
+             Button { openSessions() } label: {
+                 HStack(spacing: 8) {
+@@ -250,6 +257,14 @@ struct HoverPanelView: View {
+         if words.count > 3 { return words.prefix(3).joined(separator: " ") }
+         return String(task.prefix(14))
+     }
++
++    private var selectedRows: [AgentRow] {
++        store.rows.filter { selectedVendor == nil || $0.agent.displayVendor == selectedVendor }
++    }
++
++    private var selectedConsumers: [AgentDescriptor] {
++        store.consumers.filter { selectedVendor == nil || $0.vendor == selectedVendor }
++    }
+ }
+ 
+ /// One independently switchable provider block. Refreshes keep its selected metric because the vendor is its identity.
+@@ -257,17 +272,38 @@ private struct ProviderQuotaBlock: View {
+     let store: UsageStore
+     let vendor: String
+     let rows: [AgentRow]
++    var vendorChoices: [String] = []
++    var onSelectVendor: (String) -> Void = { _ in }
+     @State private var metric = IslandQuotaMetric.quota
+     private let theme = Theme.island
+ 
+     var body: some View {
+         VStack(alignment: .leading, spacing: 8) {
+             HStack(spacing: 6) {
+-                AgentLogo(vendor: vendor, size: 14)
+-                    .frame(width: IslandRowLayout.inset * 2 + IslandRowLayout.markerWidth)
+-                Text(VendorCatalog.name(vendor))
+-                    .font(IslandRowLayout.headingFont)
+-                    .foregroundStyle(theme.text)
++                if vendorChoices.count > 1 {
++                    Menu {
++                        ForEach(vendorChoices, id: \.self) { choice in
++                            Button(VendorCatalog.name(choice)) { onSelectVendor(choice) }
++                        }
++                    } label: {
++                        HStack(spacing: 6) {
++                            AgentLogo(vendor: vendor, size: 14)
++                                .frame(width: IslandRowLayout.inset * 2 + IslandRowLayout.markerWidth)
++                            Text(VendorCatalog.name(vendor))
++                                .font(IslandRowLayout.headingFont)
++                            Image(systemName: "chevron.down").font(.ui(9))
++                        }
++                        .foregroundStyle(theme.text)
++                    }
++                    .menuStyle(.borderlessButton)
++                    .fixedSize()
++                } else {
++                    AgentLogo(vendor: vendor, size: 14)
++                        .frame(width: IslandRowLayout.inset * 2 + IslandRowLayout.markerWidth)
++                    Text(VendorCatalog.name(vendor))
++                        .font(IslandRowLayout.headingFont)
++                        .foregroundStyle(theme.text)
++                }
+                 if store.isLoading {
+                     LoadingSpinner(color: theme.secondary)
+                         .accessibilityLabel(L10n.text("正在读取额度", "Loading quota"))
+diff --git a/Sources/AgentHUDDesktop/Stats/UsageChartsCard.swift b/Sources/AgentHUDDesktop/Stats/UsageChartsCard.swift
+index c09bc27..00d2421 100644
+--- a/Sources/AgentHUDDesktop/Stats/UsageChartsCard.swift
++++ b/Sources/AgentHUDDesktop/Stats/UsageChartsCard.swift
+@@ -19,11 +19,15 @@ struct TokenConsumptionChart: View {
+     let store: UsageStore
+     let theme: Theme
+     let context: Context
++    var vendor: String? = nil
+ 
+     var body: some View {
+-        let columns = store.tokenColumns
+-        let totals = store.consumers.indices.map { index in columns.reduce(0) { $0 + $1.tokens[index] } }
+-        let legendConsumers = store.consumers.enumerated().filter { totals[$0.offset] > 0 }
++        let consumers = store.consumers.filter { vendor == nil || $0.vendor == vendor }
++        let columns = vendor == nil ? store.tokenColumns : ChartData.tokenBars(
++            usage: store.report?.usage ?? [], agentIds: consumers.map(\.id), range: store.statsRange,
++            bucketSize: store.tokenBucketSize, now: store.dataDate, dimensions: store.tokenDimensions)
++        let totals = consumers.indices.map { index in columns.reduce(0) { $0 + $1.tokens[index] } }
++        let legendConsumers = consumers.enumerated().filter { totals[$0.offset] > 0 }
+         VStack(alignment: .leading, spacing: 6) {
+             HStack(alignment: .firstTextBaseline) {
+                 Text(L10n.text("Token 消耗", "Tokens"))
+@@ -58,7 +62,7 @@ struct TokenConsumptionChart: View {
+                 .foregroundStyle(theme.secondary)
+             }
+             TokenBarsChart(columns: columns, interval: store.statsInterval, colors: barColors,
+-                           consumers: store.consumers, theme: theme, isLoading: store.report == nil)
++                           consumers: consumers, theme: theme, isLoading: store.report == nil)
+                 .id([store.statsRange.hours, store.tokenBucketSize.rawValue, store.tokenDimensions.rawValue])
+                 .frame(height: context == .island ? 72 : 100)
+                 .padding(.horizontal, context == .stats ? 12 : 6)
+@@ -100,7 +104,8 @@ struct TokenConsumptionChart: View {
+     }
+ 
+     private var barColors: [Color] {
+-        store.consumers.map { AgentPalette.swiftUIColor(index: store.consumerPaletteIndex($0.id)) }
++        store.consumers.filter { vendor == nil || $0.vendor == vendor }
++            .map { AgentPalette.swiftUIColor(index: store.consumerPaletteIndex($0.id)) }
+     }
+ }
+ 

@@ -139,6 +139,9 @@ local logs and account data. It attempts to install completion and attention
 hooks for supported clients; approval requests remain in the coding client's
 own UI. GitHub Copilot quota access uses the existing GitHub CLI sign-in.
 
+Run `./update_agent_hud.sh` to manually bring in upstream features while keeping
+the Boring Notch panel adaptations (see the vendored package README for checks).
+
 ### Prerequisites
 
 - **macOS 14 or later**: If you’re not on the latest macOS, we might need to send a search party.
@@ -197,4 +200,3 @@ For a full list of licenses and attributions, please see the [Third-Party Licens
 
 - **SwiftUI**: For making us look like coding wizards.
 - **You**: For being awesome and checking out **boring.notch**!
-

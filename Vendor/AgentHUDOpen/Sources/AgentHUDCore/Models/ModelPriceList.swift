@@ -29,7 +29,8 @@ extension ModelCatalog {
             "gpt-6-astra": openAI("10", "1", "50"),
             "gpt-6-sol": openAI("2", "0.20", "10"),
             "gpt-6-luna": openAI("0.10", "0.01", "0.50"),
-            "gpt-5.6-sol": openAI("4", "0.40", "20"),
+            // OpenAI sells gpt-5.6-sol for less as a promotion, at least through 2026-11-21.
+            "gpt-5.6-sol": openAI("5", "0.50", "30"),
             "gpt-5.6-terra": openAI("2", "0.20", "12"),
             "gpt-5.6-luna": openAI("0.20", "0.02", "1.20"),
             "gpt-5.5": openAI("5", "0.50", "30"),
@@ -162,6 +163,27 @@ extension ModelCatalog {
         ]
         for (alias, name) in aliases { models[alias] = models[name] }
         return models
+    }()
+
+    /// The provider ids OpenCode, Pi and Kimi give a vendor's own API or plan, and that vendor. Any other provider — a
+    /// gateway such as OpenCode Zen, OpenCode Go or OpenRouter, a cloud such as Azure, Bedrock or Vertex, or a proxy —
+    /// sells a model at prices of its own, which the catalog does not list.
+    static let vendorServices: [String: String] = {
+        let services: [String: [String]] = [
+            "Anthropic": ["anthropic"],
+            "OpenAI": ["openai", "openai-codex"],
+            "DeepSeek": ["deepseek"],
+            "Google": ["google"],
+            "xAI": ["xai"],
+            "GLM": ["zai", "zai-coding-plan", "zai-coding-cn", "zhipuai", "zhipuai-coding-plan"],
+            "Moonshot": ["moonshotai", "moonshotai-cn", "kimi-code", "kimi-coding", "kimi-for-coding", "kimi-code-plan-cn",
+                         "kimi-code-plan-global"],
+            "Qwen": ["alibaba", "alibaba-cn", "alibaba-coding-plan", "alibaba-coding-plan-cn", "alibaba-token-plan",
+                     "alibaba-token-plan-cn", "qwen-token-plan", "qwen-token-plan-cn", "qwen-token-plan-individual"],
+            "MiniMax": ["minimax", "minimax-cn", "minimax-coding-plan", "minimax-cn-coding-plan"],
+            "MiMo": ["xiaomi", "xiaomi-token-plan-ams", "xiaomi-token-plan-cn", "xiaomi-token-plan-sgp"],
+        ]
+        return Dictionary(uniqueKeysWithValues: services.flatMap { vendor, ids in ids.map { ($0, vendor) } })
     }()
 
     private static func decimal(_ text: String) -> Decimal { Decimal(string: text, locale: Locale(identifier: "en_US_POSIX"))! }

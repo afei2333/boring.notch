@@ -2,8 +2,14 @@ import AgentHUDCore
 import AgentHUDDesktop
 import SwiftUI
 
+private struct AgentHUDContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
 @MainActor
 struct AgentHUDView: View {
+    @EnvironmentObject private var vm: BoringViewModel
     @State private var store = AgentHUDService.shared.store
     @State private var selectedVendor: String?
 
@@ -21,7 +27,7 @@ struct AgentHUDView: View {
     var body: some View {
         let vendors = availableVendors
         let vendor = selectedVendor.flatMap { vendors.contains($0) ? $0 : nil } ?? vendors.first
-        return ScrollView {
+        return VStack(alignment: .leading, spacing: 0) {
             if let vendor {
                 EmbeddedAgentHUDPanel(store: store, vendor: vendor, vendorChoices: vendors) {
                     selectedVendor = $0
@@ -35,7 +41,14 @@ struct AgentHUDView: View {
                     .frame(maxWidth: .infinity, minHeight: 300)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: AgentHUDContentHeightKey.self, value: proxy.size.height)
+        })
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onPreferenceChange(AgentHUDContentHeightKey.self) { height in
+            vm.updateAgentContentHeight(height)
+        }
         .task {
             await store.refreshAccounts()
         }

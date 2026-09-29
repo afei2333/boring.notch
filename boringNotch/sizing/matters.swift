@@ -19,16 +19,16 @@ let openNotchSize: CGSize = .init(width: 640, height: 190)
 /// window uses the tallest height; `notchOpenHeight(for:)` chooses the visible
 /// area for each view. Unused window space remains transparent.
 let expandedNotchHeight: CGFloat = 300
-let agentNotchHeight: CGFloat = 450
+let agentNotchMaxHeight: CGFloat = 600
 
-let windowSize: CGSize = .init(width: openNotchSize.width, height: max(openNotchSize.height, expandedNotchHeight, agentNotchHeight) + shadowPadding)
+let windowSize: CGSize = .init(width: openNotchSize.width, height: max(openNotchSize.height, expandedNotchHeight, agentNotchMaxHeight) + shadowPadding)
 
 /// The height of the visible black notch area when open, depending on the view.
 func notchOpenHeight(for view: NotchViews) -> CGFloat {
     switch view {
     // .apps: 190pt only fits one row of 52pt tiles + labels; needs two.
     case .agents:
-        return agentNotchHeight
+        return 450
     case .screenshot, .clipboard, .stats, .apps:
         return expandedNotchHeight
     default:

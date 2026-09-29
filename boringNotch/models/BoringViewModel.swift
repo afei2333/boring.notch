@@ -209,7 +209,8 @@ class BoringViewModel: NSObject, ObservableObject {
         // The animation lives here, not at the call sites: hover, tap, pan,
         // drop and the app-level openers all land on this one function.
         withAnimation(NotchAnimation.open) {
-            self.notchSize = CGSize(width: openNotchSize.width, height: notchOpenHeight(for: coordinator.currentView))
+            let height = coordinator.currentView == .agents ? agentContentHeight : notchOpenHeight(for: coordinator.currentView)
+            self.notchSize = CGSize(width: openNotchSize.width, height: height)
             self.notchState = .open
         }
 
@@ -221,8 +222,19 @@ class BoringViewModel: NSObject, ObservableObject {
     /// (e.g. screenshot) need more room than the default open notch.
     func syncOpenHeightWithCurrentView() {
         guard notchState == .open else { return }
-        let height = notchOpenHeight(for: coordinator.currentView)
+        let height = coordinator.currentView == .agents ? agentContentHeight : notchOpenHeight(for: coordinator.currentView)
         if notchSize.height != height {
+            notchSize.height = height
+        }
+    }
+
+    private var agentContentHeight: CGFloat = notchOpenHeight(for: .agents)
+
+    func updateAgentContentHeight(_ contentHeight: CGFloat) {
+        guard contentHeight > 0 else { return }
+        let height = min(agentNotchMaxHeight, max(300, max(24, effectiveClosedNotchHeight) + 8 + contentHeight + 16))
+        agentContentHeight = height
+        if notchState == .open && coordinator.currentView == .agents && abs(notchSize.height - height) > 1 {
             notchSize.height = height
         }
     }
