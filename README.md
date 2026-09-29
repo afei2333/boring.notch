@@ -1,8 +1,8 @@
 <h1 align="center">
   <br>
-  <a href="http://theboring.name"><img src="https://framerusercontent.com/images/RFK4vs0kn8pRMuOO58JeyoemXA.png?scale-down-to=256" alt="Boring Notch" width="150"></a>
+  <img src="boringNotch/Assets.xcassets/AppIcon.appiconset/icon_256.png" alt="DIHUD icon" width="150">
   <br>
-  Boring Notch
+  DIHUD
   <br>
 </h1>
 
@@ -20,7 +20,9 @@
 
 <!--Welcome to **Boring.Notch**, the coolest way to make your MacBook's notch the star of the show! Forget about those boring status bars—our notch turns into a dynamic music control center, complete with a snazzy visualizer and all the music controls you need. It's like having a mini concert right at the top of your screen! -->
 
-Say hello to **Boring Notch**, the coolest way to make your MacBook’s notch the star of the show! Say goodbye to boring status bars: with Boring Notch, your notch transforms into a dynamic music control center, complete with a vibrant visualizer and all the essential music controls you need. But that’s just the start! Boring Notch also offers calendar integration, a handy file shelf with AirDrop support, a complete MacOS HUD replacement and more!
+**DIHUD** combines this checkout's Boring Notch interface with Agent HUD Open's coding-agent activity and usage views. It keeps the music controls, calendar, file shelf, and macOS HUD features from [Boring Notch](https://github.com/TheBoredTeam/boring.notch).
+
+DIHUD uses the bundle ID `theboringteam.dihud`. On first launch it copies preferences from `theboringteam.boringnotch` and the previous Agent HUD settings domain. Existing Application Support data stays in its original location. macOS permissions and login items may need to be granted again for the new app identity. Update checks are disabled until DIHUD has its own update feed.
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/2d5f69c1-6e7b-4bc2-a6f1-bb9e27cf88a8" alt="Demo GIF" />
@@ -48,6 +50,8 @@ Say hello to **Boring Notch**, the coolest way to make your MacBook’s notch th
 ---
 
 ### Option 1: Download and Install Manually
+
+The downloads and Homebrew command below install upstream Boring Notch. Build this checkout for DIHUD.
 
 <a href="https://github.com/TheBoredTeam/boring.notch/releases/latest/download/boringNotch.dmg" target="_self"><img width="200" src="https://github.com/user-attachments/assets/e3179be1-8416-4b8a-b417-743e1ecc67d6" alt="Download for macOS" /></a>
 
@@ -149,18 +153,12 @@ the Boring Notch panel adaptations (see the vendored package README for checks).
 
 ### Installation
 
-1. **Clone the Repository**:
+1. **Open this checkout in Xcode**:
    ```bash
-   git clone https://github.com/TheBoredTeam/boring.notch.git
-   cd boring.notch
+   open DIHUD.xcodeproj
    ```
 
-2. **Open the Project in Xcode**:
-   ```bash
-   open boringNotch.xcodeproj
-   ```
-
-3. **Build and Run**:
+2. **Build and Run**:
     - Click the "Run" button or press `Cmd + R`. Watch the magic unfold!
 
 ## 🤝 Contributing

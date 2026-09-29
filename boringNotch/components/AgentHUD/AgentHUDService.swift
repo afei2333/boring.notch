@@ -9,7 +9,7 @@ final class AgentHUDService {
     private var observation: UsageChangeObservation?
 
     private init() {
-        let defaults = UserDefaults(suiteName: "com.boringnotch.agenthud") ?? .standard
+        let defaults = UserDefaults(suiteName: "theboringteam.dihud.agenthud") ?? .standard
         let settings = SettingsStore(defaults: defaults)
         L10n.setLanguage(settings.settings.language)
         let ledger = UsageLedger.open()

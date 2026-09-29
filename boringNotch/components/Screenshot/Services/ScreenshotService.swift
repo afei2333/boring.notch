@@ -102,7 +102,7 @@ final class ScreenshotService {
             guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
                   let id = info[kCGWindowNumber as String] as? CGWindowID,
                   let ownerName = info[kCGWindowOwnerName as String] as? String,
-                  ownerName != "boringNotch",
+                  ownerName != "DIHUD",
                   let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
                   let bounds = CGRect(dictionaryRepresentation: boundsDict),
                   bounds.width > 1, bounds.height > 1

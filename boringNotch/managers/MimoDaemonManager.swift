@@ -29,7 +29,7 @@ final class MimoDaemonManager: ObservableObject {
     private(set) var pid: Int?
 
     private static let pidDefaultsKey = "mimoDaemonPID"
-    private static let helperServiceName = "theboringteam.boringnotch.BoringNotchXPCHelper"
+    private static let helperServiceName = "theboringteam.dihud.BoringNotchXPCHelper"
 
     private var startTask: Task<Void, Never>?
 

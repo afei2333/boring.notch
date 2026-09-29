@@ -188,7 +188,7 @@ final class StockManager: ObservableObject {
     private var lastChangeSide: [String: (day: String, side: Int)] = [:]
 
     private static let pidDefaultsKey = "stockBridgePID"
-    private static let helperServiceName = "theboringteam.boringnotch.BoringNotchXPCHelper"
+    private static let helperServiceName = "theboringteam.dihud.BoringNotchXPCHelper"
 
     private init() {}
 

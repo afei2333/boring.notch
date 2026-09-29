@@ -9,7 +9,6 @@ import AVFoundation
 import Combine
 import Defaults
 import KeyboardShortcuts
-import Sparkle
 import SwiftUI
 
 @main
@@ -18,28 +17,21 @@ struct DynamicNotchApp: App {
     @Default(.menubarIcon) var showMenuBarIcon
     @Environment(\.openWindow) var openWindow
 
-    let updaterController: SPUStandardUpdaterController
-
     init() {
         AgentHUDHookCommand.runIfNeeded()
-        updaterController = SPUStandardUpdaterController(
-            startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
-
-        // Initialize the settings window controller with the updater controller
-        SettingsWindowController.shared.setUpdaterController(updaterController)
+        DIHUDSettingsMigration.runIfNeeded()
     }
 
     var body: some Scene {
-        MenuBarExtra("boring.notch", systemImage: "sparkle", isInserted: $showMenuBarIcon) {
+        MenuBarExtra("DIHUD", systemImage: "sparkle", isInserted: $showMenuBarIcon) {
             Button("Settings") {
                 DispatchQueue.main.async {
                     SettingsWindowController.shared.showWindow()
                 }
             }
             .keyboardShortcut(KeyEquivalent(","), modifiers: .command)
-            CheckForUpdatesView(updater: updaterController.updater)
             Divider()
-            Button("Restart Boring Notch") {
+            Button("Restart DIHUD") {
                 ApplicationRelauncher.restart()
             }
             #if DEBUG
@@ -55,6 +47,36 @@ struct DynamicNotchApp: App {
                 NSApplication.shared.terminate(self)
             }
             .keyboardShortcut(KeyEquivalent("Q"), modifiers: .command)
+        }
+    }
+}
+
+private enum DIHUDSettingsMigration {
+    private static let oldBundleID = "theboringteam.boringnotch"
+    private static let newBundleID = "theboringteam.dihud"
+    private static let migrationKey = "dihudSettingsMigrated"
+
+    static func runIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: migrationKey) else { return }
+
+        var current = defaults.persistentDomain(forName: newBundleID) ?? [:]
+        if let old = defaults.persistentDomain(forName: oldBundleID) {
+            for (key, value) in old where current[key] == nil {
+                current[key] = value
+            }
+        }
+        current[migrationKey] = true
+        defaults.setPersistentDomain(current, forName: newBundleID)
+
+        let oldAgentHUD = "com.boringnotch.agenthud"
+        let newAgentHUD = "theboringteam.dihud.agenthud"
+        if let old = defaults.persistentDomain(forName: oldAgentHUD) {
+            var currentAgentHUD = defaults.persistentDomain(forName: newAgentHUD) ?? [:]
+            for (key, value) in old where currentAgentHUD[key] == nil {
+                currentAgentHUD[key] = value
+            }
+            defaults.setPersistentDomain(currentAgentHUD, forName: newAgentHUD)
         }
     }
 }

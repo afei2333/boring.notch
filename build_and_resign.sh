@@ -2,7 +2,7 @@
 #
 # build_and_resign.sh
 #
-# 构建 Release 版 LLD-AI.app，拷贝到项目根目录，并做「递归深度重签名」：
+# 构建 Release 版 DIHUD.app，拷贝到项目根目录，并做「递归深度重签名」：
 # 用本地 ad-hoc 签名把框架、XPC helper 和主程序统一重签为一致的签名，
 # 同时保留每个二进制各自的 entitlements（主程序与 helper 不同，
 # 不能用一份 entitlements 覆盖全部，所以用 --preserve-metadata=entitlements）。
@@ -17,11 +17,11 @@ set -euo pipefail
 
 # ---------- 配置 ----------
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT="$PROJECT_ROOT/boringNotch.xcodeproj"
-SCHEME="boringNotch"
+PROJECT="$PROJECT_ROOT/DIHUD.xcodeproj"
+SCHEME="DIHUD"
 CONFIG="Release"
 DERIVED="$PROJECT_ROOT/.build_release"
-APP_NAME="LLD-AI.app"
+APP_NAME="DIHUD.app"
 BUILT_APP="$DERIVED/Build/Products/$CONFIG/$APP_NAME"
 DEST_APP="$PROJECT_ROOT/$APP_NAME"
 
