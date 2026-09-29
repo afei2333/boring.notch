@@ -27,7 +27,7 @@ struct AgentHUDView: View {
     var body: some View {
         let vendors = availableVendors
         let vendor = selectedVendor.flatMap { vendors.contains($0) ? $0 : nil } ?? vendors.first
-        return ScrollView(.vertical) {
+        return ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
                 if let vendor {
                     EmbeddedAgentHUDPanel(store: store, vendor: vendor, vendorChoices: vendors) {

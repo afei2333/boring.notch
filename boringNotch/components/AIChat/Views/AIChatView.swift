@@ -120,7 +120,7 @@ struct AIChatView: View {
 
     private var messageList: some View {
         ScrollViewReader { proxy in
-            ScrollView {
+            ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     if visibleMessages.isEmpty && vm.streamingText.isEmpty {
                         emptyState

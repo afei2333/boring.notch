@@ -120,7 +120,7 @@ struct MusicSlotConfigurationView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                ScrollView(.horizontal) {
+                ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
                         ForEach(MusicControlButton.pickerOptions, id: \.self) { control in
                             VStack(spacing: 6) {
@@ -160,7 +160,6 @@ struct MusicSlotConfigurationView: View {
                     }
                     .padding(.vertical, 4)
                 }
-                .scrollIndicators(.visible)
             }
         }
     }

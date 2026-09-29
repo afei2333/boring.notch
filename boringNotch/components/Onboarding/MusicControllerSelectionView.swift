@@ -37,7 +37,7 @@ struct MusicControllerSelectionView: View {
                 .foregroundColor(.secondary)
                 .padding(.horizontal)
 
-            ScrollView {
+            ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 12) {
                     ForEach(availableMediaControllers) { controller in
                         ControllerOptionView(
