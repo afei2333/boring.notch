@@ -7,6 +7,8 @@
 //
 
 import AVFoundation
+import AgentHUDCore
+import AgentHUDDesktop
 import Combine
 import Defaults
 import KeyboardShortcuts
@@ -24,6 +26,7 @@ struct ContentView: View {
     @ObservedObject var aiChat = AIChatViewModel.shared
     @ObservedObject var brightnessManager = BrightnessManager.shared
     @ObservedObject var volumeManager = VolumeManager.shared
+    @ObservedObject private var agentHUD = AgentHUDService.shared
     @State private var hoverTask: Task<Void, Never>?
     @State private var isHovering: Bool = false
     @State private var anyDropDebounceTask: Task<Void, Never>?
@@ -60,6 +63,13 @@ struct ContentView: View {
 
     private let extendedHoverPadding: CGFloat = 30
     private let zeroHeightHoverPadding: CGFloat = 10
+
+    private var presentedAgentNotice: AgentHUDNotice? {
+        switch agentHUD.noticePhase {
+        case .hidden, .dismissing: nil
+        case .appearing, .visible, .fading: agentHUD.notice
+        }
+    }
 
     private var topCornerRadius: CGFloat {
        ((vm.notchState == .open) && Defaults[.cornerRadiusScaling])
@@ -103,6 +113,9 @@ struct ContentView: View {
             chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
         }
 
+        if vm.notchState == .closed && presentedAgentNotice != nil {
+            chinWidth = max(chinWidth, vm.closedNotchSize.width + 324)
+        }
         return chinWidth
     }
 
@@ -159,10 +172,11 @@ struct ContentView: View {
                     // different springs. One transaction drives everything.
                     .contentShape(Rectangle())
                     .onHover { hovering in
+                        agentHUD.holdNotice(hovering)
                         handleHover(hovering)
                     }
                     .onTapGesture {
-                        doOpen()
+                        if presentedAgentNotice?.completion == nil { doOpen() }
                     }
                     .conditionalModifier(Defaults[.enableGestures] && !(vm.notchState == .open && coordinator.currentView == .ai)) { view in
                         view
@@ -268,6 +282,12 @@ struct ContentView: View {
         .preferredColorScheme(notchTheme == .liquidGlass ? nil : .dark)
         .environment(\.notchTheme, notchTheme)
         .environmentObject(vm)
+        .onChange(of: agentHUD.notice?.completion?.id) { _, completionID in
+            if completionID != nil && vm.notchState == .open {
+                hoverTask?.cancel()
+                vm.close()
+            }
+        }
         .onChange(of: vm.anyDropZoneTargeting) { _, isTargeted in
             anyDropDebounceTask?.cancel()
 
@@ -311,7 +331,19 @@ struct ContentView: View {
                     .padding(.top, 40)
                     Spacer()
                 } else {
-                    if coordinator.expandingView.type == .battery && coordinator.expandingView.show
+                    if vm.notchState == .closed &&
+                       presentedAgentNotice != nil
+                    {
+                        AgentHUDClosedNotice(request: nil,
+                                             notice: presentedAgentNotice,
+                                             cameraWidth: vm.closedNotchSize.width + 10,
+                                             height: vm.effectiveClosedNotchHeight,
+                                             onOpen: openAgentHUDNotice)
+                            .opacity(presentedAgentNotice == nil || agentHUD.noticePhase == .visible ? 1 : 0)
+                            .offset(y: presentedAgentNotice == nil || agentHUD.noticePhase == .visible ? 0 : -4)
+                            .allowsHitTesting(presentedAgentNotice == nil || agentHUD.noticePhase == .visible)
+                            .transition(.identity)
+                    } else if coordinator.expandingView.type == .battery && coordinator.expandingView.show
                         && vm.notchState == .closed && Defaults[.showPowerStatusNotifications]
                     {
                         HStack(spacing: 0) {
@@ -424,6 +456,18 @@ struct ContentView: View {
                         AgentHUDView()
                     case .stocks:
                         StocksView()
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    if let notice = presentedAgentNotice, notice.completion == nil {
+                        Label("\(notice.title) · \(notice.detail)", systemImage: notice.symbol)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(.black.opacity(0.85), in: RoundedRectangle(cornerRadius: 10))
+                            .padding(.bottom, 12)
                     }
                 }
                 // Asymmetric on purpose. In: the container opens first, then the
@@ -629,6 +673,24 @@ struct ContentView: View {
         vm.open()  // carries its own animation
     }
 
+    private func openAgentHUDNotice() {
+        if let completion = presentedAgentNotice?.completion {
+            let store = agentHUD.store
+            store.focusedSessionID = nil
+            if store.sessions.contains(where: { $0.id == completion.sessionID }) {
+                store.focusedSessionID = completion.sessionID
+            } else {
+                store.statsTab = .tokens
+            }
+            agentHUD.dismissNotice()
+            vm.close()
+            SettingsWindowController.shared.showAgentStats()
+        } else {
+            coordinator.currentView = .agents
+            vm.open()
+        }
+    }
+
     private func checkAIAutoClose() {
         aiAutoCloseTask?.cancel()
         aiAutoCloseTask = nil
@@ -675,7 +737,8 @@ struct ContentView: View {
                 haptics.toggle()
             }
             
-            guard vm.notchState == .closed,
+            guard presentedAgentNotice?.completion == nil,
+                  vm.notchState == .closed,
                   !coordinator.sneakPeek.show,
                   Defaults[.openNotchOnHover] else { return }
             

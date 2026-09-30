@@ -28,10 +28,10 @@ index 1e87549..76b231e 100644
              guard AdditionalSource(rawValue: source.rawValue)?.isInstalled(home: home) == true else { continue }
 diff --git a/Sources/AgentHUDDesktop/Notch/EmbeddedAgentHUDPanel.swift b/Sources/AgentHUDDesktop/Notch/EmbeddedAgentHUDPanel.swift
 new file mode 100644
-index 0000000..45033b8
+index 00000000..e46b4a92
 --- /dev/null
 +++ b/Sources/AgentHUDDesktop/Notch/EmbeddedAgentHUDPanel.swift
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,68 @@
 +import AgentHUDCore
 +import SwiftUI
 +
@@ -77,6 +77,27 @@ index 0000000..45033b8
 +                           vendorChoices: vendorChoices, onSelectVendor: onSelectVendor,
 +                           showsFooter: false, topInset: hasQuotaRows ? 12 : 8)
 +        }
++    }
++}
++
++/// Reuses the source island's completion views inside a host-owned notch window.
++public struct EmbeddedCompletionAlert: View {
++    let completion: SessionCompletion
++    let cameraWidth: CGFloat
++    let height: CGFloat
++    let onOpen: () -> Void
++
++    public init(_ completion: SessionCompletion, cameraWidth: CGFloat = 0,
++                height: CGFloat = 0, onOpen: @escaping () -> Void) {
++        self.completion = completion
++        self.cameraWidth = cameraWidth
++        self.height = height
++        self.onOpen = onOpen
++    }
++
++    public var body: some View {
++        let alert = IslandAlert.completion(completion)
++        IslandAlertCompactView(alert: alert, cameraWidth: cameraWidth, height: height, onOpen: onOpen)
 +    }
 +}
 diff --git a/Sources/AgentHUDDesktop/Notch/HoverPanelView.swift b/Sources/AgentHUDDesktop/Notch/HoverPanelView.swift
@@ -289,6 +310,23 @@ index 0db1e8de..9983faba 100644
          }
      }
  
+diff --git a/Sources/AgentHUDDesktop/Stats/StatsView.swift b/Sources/AgentHUDDesktop/Stats/StatsView.swift
+index 45cd5497..7c901971 100644
+--- a/Sources/AgentHUDDesktop/Stats/StatsView.swift
++++ b/Sources/AgentHUDDesktop/Stats/StatsView.swift
+@@ -275,3 +275,12 @@ final class StatsWindowController: HostedWindowController {
+         window.setFrame(frame, display: true)
+     }
+ }
++
++/// The original statistics pages hosted inside another app's settings window.
++public struct EmbeddedAgentHUDStats: View {
++    let store: UsageStore
++
++    public init(store: UsageStore) { self.store = store }
++
++    public var body: some View { StatsView(store: store) }
++}
 diff --git a/Sources/AgentHUDCore/Providers/Codex/CodexUsageProvider.swift b/Sources/AgentHUDCore/Providers/Codex/CodexUsageProvider.swift
 index ca777aa5..a12931e2 100644
 --- a/Sources/AgentHUDCore/Providers/Codex/CodexUsageProvider.swift

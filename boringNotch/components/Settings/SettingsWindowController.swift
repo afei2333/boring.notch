@@ -83,6 +83,18 @@ class SettingsWindowController: NSWindowController {
             self?.window?.makeKeyAndOrderFront(nil)
         }
     }
+
+    func showAgentStats() {
+        window?.contentView = NSHostingView(rootView: SettingsView(initialTab: "Agent HUD"))
+        showWindow()
+    }
+
+    func setAgentStatsExpanded(_ expanded: Bool) {
+        guard let window else { return }
+        let centerX = window.frame.midX
+        window.setContentSize(NSSize(width: expanded ? 1000 : 700, height: window.contentLayoutRect.height))
+        window.setFrameOrigin(NSPoint(x: centerX - window.frame.width / 2, y: window.frame.minY))
+    }
     
     override func close() {
         super.close()

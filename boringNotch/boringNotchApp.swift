@@ -315,8 +315,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-
-        AgentHUDService.shared.start()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(agentHUDNoticePresented),
+            name: .agentHUDNoticePresented,
+            object: nil
+        )
 
         // Clean up any mimo daemon orphaned by a previous crash / force quit.
         MimoDaemonManager.shared.reapStaleDaemon()
@@ -474,6 +478,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         setupDragDetectors()
+        AgentHUDService.shared.start()
 
         if coordinator.firstLaunch {
             DispatchQueue.main.async {
@@ -489,6 +494,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         previousScreens = NSScreen.screens
+    }
+
+    @objc private func agentHUDNoticePresented() {
+        let targets = Defaults[.showOnAllDisplays] ? Array(windows.values) : [window].compactMap { $0 }
+        DispatchQueue.main.async {
+            for window in targets {
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.contentView?.needsDisplay = true
+                window.orderFrontRegardless()
+                window.displayIfNeeded()
+            }
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -663,6 +680,7 @@ extension Notification.Name {
     static let showOnAllDisplaysChanged = Notification.Name("showOnAllDisplaysChanged")
     static let automaticallySwitchDisplayChanged = Notification.Name("automaticallySwitchDisplayChanged")
     static let expandedDragDetectionChanged = Notification.Name("expandedDragDetectionChanged")
+    static let agentHUDNoticePresented = Notification.Name("AgentHUDNoticePresented")
 }
 
 extension CGRect: @retroactive Hashable {

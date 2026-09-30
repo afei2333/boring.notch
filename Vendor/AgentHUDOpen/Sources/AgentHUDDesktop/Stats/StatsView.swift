@@ -275,3 +275,12 @@ final class StatsWindowController: HostedWindowController {
         window.setFrame(frame, display: true)
     }
 }
+
+/// The original statistics pages hosted inside another app's settings window.
+public struct EmbeddedAgentHUDStats: View {
+    let store: UsageStore
+
+    public init(store: UsageStore) { self.store = store }
+
+    public var body: some View { StatsView(store: store) }
+}

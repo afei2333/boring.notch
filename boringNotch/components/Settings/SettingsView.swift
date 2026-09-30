@@ -6,6 +6,7 @@
 //
 
 import AVFoundation
+import AgentHUDDesktop
 import Defaults
 import EventKit
 import KeyboardShortcuts
@@ -16,6 +17,10 @@ import SwiftUIIntrospect
 struct SettingsView: View {
     @State private var selectedTab = "General"
     @State private var accentColorUpdateTrigger = UUID()
+
+    init(initialTab: String = "General") {
+        _selectedTab = State(initialValue: initialTab)
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -52,6 +57,9 @@ struct SettingsView: View {
                 }
                 NavigationLink(value: "Stocks") {
                     Label("Stocks", systemImage: "chart.line.uptrend.xyaxis")
+                }
+                NavigationLink(value: "Agent HUD") {
+                    Label("Agent HUD", systemImage: "chart.bar.xaxis")
                 }
                 // NavigationLink(value: "Extensions") {
                 //     Label("Extensions", systemImage: "puzzlepiece.extension")
@@ -90,6 +98,10 @@ struct SettingsView: View {
                     AnimationSettings()
                 case "Stocks":
                     StockSettings()
+                case "Agent HUD":
+                    EmbeddedAgentHUDStats(store: AgentHUDService.shared.store)
+                        .navigationTitle("Agent HUD 统计")
+                        .task { await AgentHUDService.shared.store.refreshAccounts() }
                 case "Extensions":
                     GeneralSettings()
                 case "Advanced":
@@ -112,12 +124,15 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 700)
+        .frame(width: selectedTab == "Agent HUD" ? 1000 : 700)
         .background(Color(NSColor.windowBackgroundColor))
         .tint(.effectiveAccent)
         .id(accentColorUpdateTrigger)
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("AccentColorChanged"))) { _ in
             accentColorUpdateTrigger = UUID()
+        }
+        .onChange(of: selectedTab) { _, tab in
+            SettingsWindowController.shared.setAgentStatsExpanded(tab == "Agent HUD")
         }
     }
 }

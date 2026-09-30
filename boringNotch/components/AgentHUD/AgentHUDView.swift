@@ -56,3 +56,37 @@ struct AgentHUDView: View {
         }
     }
 }
+
+struct AgentHUDClosedNotice: View {
+    let request: PermissionRequest?
+    let notice: AgentHUDNotice?
+    let cameraWidth: CGFloat
+    let height: CGFloat
+    let onOpen: () -> Void
+
+    var body: some View {
+        Group {
+            if let completion = notice?.completion {
+                EmbeddedCompletionAlert(completion, cameraWidth: cameraWidth,
+                                        height: height, onOpen: onOpen)
+            } else {
+                Button(action: onOpen) {
+                    HStack(spacing: 0) {
+                        Label(request?.vendor ?? notice?.title ?? "Agent", systemImage: request == nil ? (notice?.symbol ?? "sparkles") : "hand.raised.fill")
+                            .frame(width: 120, alignment: .leading)
+                        Color.clear.frame(width: cameraWidth)
+                        Text(request == nil ? (notice?.detail ?? "") : "待审批 · \(request?.summary ?? "")")
+                            .frame(width: 170, alignment: .trailing)
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .padding(.horizontal, 12)
+                    .frame(height: height)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}

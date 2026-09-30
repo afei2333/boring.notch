@@ -45,3 +45,24 @@ public struct EmbeddedAgentHUDPanel: View {
         }
     }
 }
+
+/// Reuses the source island's completion views inside a host-owned notch window.
+public struct EmbeddedCompletionAlert: View {
+    let completion: SessionCompletion
+    let cameraWidth: CGFloat
+    let height: CGFloat
+    let onOpen: () -> Void
+
+    public init(_ completion: SessionCompletion, cameraWidth: CGFloat = 0,
+                height: CGFloat = 0, onOpen: @escaping () -> Void) {
+        self.completion = completion
+        self.cameraWidth = cameraWidth
+        self.height = height
+        self.onOpen = onOpen
+    }
+
+    public var body: some View {
+        let alert = IslandAlert.completion(completion)
+        IslandAlertCompactView(alert: alert, cameraWidth: cameraWidth, height: height, onOpen: onOpen)
+    }
+}
