@@ -11,6 +11,7 @@ private struct AgentHUDContentHeightKey: PreferenceKey {
 struct AgentHUDView: View {
     @EnvironmentObject private var vm: BoringViewModel
     @State private var store = AgentHUDService.shared.store
+    @State private var permissions = PermissionRequests.shared
     @State private var selectedVendor: String?
 
     private var availableVendors: [String] {
@@ -28,7 +29,19 @@ struct AgentHUDView: View {
         let vendors = availableVendors
         let vendor = selectedVendor.flatMap { vendors.contains($0) ? $0 : nil } ?? vendors.first
         return ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                if !permissions.pending.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("待审批 · \(permissions.pending.count)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.orange)
+                        ForEach(permissions.pending) { request in
+                            permissionCard(request)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                }
                 if let vendor {
                     EmbeddedAgentHUDPanel(store: store, vendor: vendor, vendorChoices: vendors) {
                         selectedVendor = $0
@@ -54,6 +67,50 @@ struct AgentHUDView: View {
         .task {
             await store.refreshAccounts()
         }
+    }
+
+    private func permissionCard(_ request: PermissionRequest) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label(request.vendor, systemImage: request.symbol)
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Text(request.project ?? request.badge)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Text(request.summary)
+                .font(.subheadline.weight(.medium))
+            if let detail = request.detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+            }
+            if let path = request.path {
+                Text(path).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            if let removed = request.removed {
+                Text("− \(removed)").foregroundStyle(.red).font(.caption.monospaced())
+                    .textSelection(.enabled)
+            }
+            if let added = request.added {
+                Text("+ \(added)").foregroundStyle(.green).font(.caption.monospaced())
+                    .textSelection(.enabled)
+            }
+            HStack(spacing: 10) {
+                if !request.isQuestion && !request.isPlan {
+                    Button("允许") { permissions.resolve(request.id, .allow) }
+                    Button("拒绝") { permissions.resolve(request.id, .deny) }
+                }
+                Button("在客户端处理") { permissions.resolve(request.id, .leave) }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 

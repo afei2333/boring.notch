@@ -139,9 +139,13 @@ panel for locally detected clients. It appears in the expanded notch by default;
 the top-right controls switch between quota, burn rate, and token rate. Available
 quota and balance readings depend on each client and its
 configured account. The main app runs without App Sandbox so it can read agents'
-local logs and account data. It attempts to install completion and attention
-hooks for supported clients; approval requests remain in the coding client's
-own UI. GitHub Copilot quota access uses the existing GitHub CLI sign-in.
+local logs and account data. It installs completion, attention, and permission
+hooks for supported clients. Quota warnings, exhaustion, and task completions
+appear in the notch; pending command and file requests can be allowed or denied
+in the Agents tab. Unanswered requests return to the coding client's own UI.
+The settings sidebar has a separate Agent HUD page with the original Tokens and
+Sessions statistics.
+GitHub Copilot quota access uses the existing GitHub CLI sign-in.
 
 Run `./update_agent_hud.sh` to manually bring in upstream features while keeping
 the Boring Notch panel adaptations (see the vendored package README for checks).

@@ -16,7 +16,8 @@ the first argument for offline verification. Build Boring Notch after updating
 to check that its host API calls still match the upstream package.
 
 `SessionObservers.configure` has one host-specific addition:
-`includePermissionHooks` lets Boring Notch collect activity without installing
-approval handlers, because this integration does not answer approvals.
+`includePermissionHooks` lets the host choose whether to install approval handlers.
 The desktop panel exposes a host view with one detected provider selected at a
 time, filters its chart and sessions to that provider, and hides its footer.
+`EmbeddedAgentHUDStats` exposes the original Tokens and Sessions statistics in
+the host settings window.

@@ -27,6 +27,7 @@ struct ContentView: View {
     @ObservedObject var brightnessManager = BrightnessManager.shared
     @ObservedObject var volumeManager = VolumeManager.shared
     @ObservedObject private var agentHUD = AgentHUDService.shared
+    @State private var permissionRequests = PermissionRequests.shared
     @State private var hoverTask: Task<Void, Never>?
     @State private var isHovering: Bool = false
     @State private var anyDropDebounceTask: Task<Void, Never>?
@@ -113,7 +114,7 @@ struct ContentView: View {
             chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
         }
 
-        if vm.notchState == .closed && presentedAgentNotice != nil {
+        if vm.notchState == .closed && (!permissionRequests.pending.isEmpty || presentedAgentNotice != nil) {
             chinWidth = max(chinWidth, vm.closedNotchSize.width + 324)
         }
         return chinWidth
@@ -332,9 +333,9 @@ struct ContentView: View {
                     Spacer()
                 } else {
                     if vm.notchState == .closed &&
-                       presentedAgentNotice != nil
+                       (!permissionRequests.pending.isEmpty || presentedAgentNotice != nil)
                     {
-                        AgentHUDClosedNotice(request: nil,
+                        AgentHUDClosedNotice(request: presentedAgentNotice == nil ? permissionRequests.pending.first : nil,
                                              notice: presentedAgentNotice,
                                              cameraWidth: vm.closedNotchSize.width + 10,
                                              height: vm.effectiveClosedNotchHeight,

@@ -43,8 +43,10 @@ final class AgentHUDService: ObservableObject {
         })
         enableDetectedRows()
         checkEvents()
+        PermissionRequests.shared.holdTime = TimeInterval(store.settings.settings.approvalWaitMinutes * 60)
+        PermissionRequests.shared.start()
         if let executable = Bundle.main.executableURL {
-            SessionObservers.configure(executable: executable, enabled: true, includePermissionHooks: false)
+            SessionObservers.configure(executable: executable, enabled: true)
         }
         prepareCompletionDirectories()
         store.start()
@@ -56,6 +58,7 @@ final class AgentHUDService: ObservableObject {
         noticePhase = .hidden
         notice = nil
         noticeHovered = false
+        PermissionRequests.shared.stop()
         store.stop()
     }
 
@@ -181,6 +184,11 @@ enum AgentHUDHookCommand {
     static func runIfNeeded() {
         let arguments = CommandLine.arguments
         guard arguments.count == 3 else { return }
+        if arguments[1] == "--permission-hook" {
+            guard let source = PermissionHooks.Source(rawValue: arguments[2]) else { exit(0) }
+            PermissionHookClient.run(source: source)
+            exit(0)
+        }
         guard arguments[1] == "--completion-hook" || arguments[1] == "--attention-hook" else { return }
 
         let data: Data
