@@ -1,6 +1,32 @@
 #!/bin/bash
 set -e
 
+# Xcode can keep an absolute binary-package path from the checkout this folder was copied from.
+package_state=".build_release/SourcePackages/workspace-state.json"
+if [[ -f "$package_state" ]]; then
+    python3 - "$package_state" "$PWD/.build_release/SourcePackages" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+state = Path(sys.argv[1])
+packages = Path(sys.argv[2])
+data = json.loads(state.read_text())
+changed = False
+for artifact in data.get("object", {}).get("artifacts", []):
+    old = artifact.get("path", "")
+    marker = "/SourcePackages/artifacts/"
+    if marker not in old or Path(old).exists():
+        continue
+    local = packages / "artifacts" / old.rsplit(marker, 1)[1]
+    if local.exists():
+        artifact["path"] = str(local)
+        changed = True
+if changed:
+    state.write_text(json.dumps(data, indent=2) + "\n")
+PY
+fi
+
 echo "=== 1. Starting Release build using Xcode ==="
 /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -scheme DIHUD -configuration Release -derivedDataPath .build_release build
 
