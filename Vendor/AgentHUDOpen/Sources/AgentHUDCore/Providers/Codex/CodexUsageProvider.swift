@@ -51,7 +51,8 @@ public actor CodexUsageProvider: UsageProvider, LedgerRecording {
            identityCacheURL: AppSupport.directory.appendingPathComponent("codex-identities.json"))
     }
 
-    public nonisolated var watchedDirectories: [URL]? { transcripts.roots }
+    // Poll Codex's active rollouts: FSEvents can miss appends while the desktop client writes a turn.
+    public nonisolated var watchedDirectories: [URL]? { nil }
     public func fileChanges(_ paths: Set<String>?) async { await transcripts.fileChanges(paths) }
     // Pi and other clients can spend the same account without writing Codex rollouts.
     public nonisolated var seesLocalWork: Bool { false }
@@ -123,6 +124,7 @@ public actor CodexUsageProvider: UsageProvider, LedgerRecording {
     public func fetchUsage(agents: [AgentDescriptor], historyHours: Int) async throws -> UsageReport {
         let now = clock()
         let weekAgo = now.addingTimeInterval(-7 * 86400)
+        await transcripts.fileChanges(nil)
         let indexed = await transcripts.index(since: min(weekAgo, now.addingTimeInterval(-Double(historyHours) * 3600)))
         let selected = accountReadings
         let native = readings[home]
